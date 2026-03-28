@@ -82,7 +82,7 @@ class World:
     def __init__(self):
         self.creatures = {}
         self.tick_count = 0
-        self.stats = {"born": 0, "died": 0, "merged": 0, "crossbred": 0, "fed": 0}
+        self.stats = {"born": 0, "died": 0, "merged": 0, "crossbred": 0, "fed": 0, "absorbed": 0, "split": 0}
         self.by_parts = {}
         self.events = []
         self.max_creatures = 2000
@@ -170,19 +170,55 @@ class World:
         b.children.append(child.id)
         return child
 
+    def _try_absorb(self, organism):
+        """If organism matches an abstraction's skeleton, absorb the
+        differing part into the slot. Returns True if absorbed."""
+        for c in self.creatures.values():
+            if not c.alive or not c.slot_options or c.id == organism.id:
+                continue
+            if c.complexity != organism.complexity:
+                continue
+            match = True
+            new_values = {}
+            for i in range(c.complexity):
+                if c.parts[i].startswith("$"):
+                    new_values[c.parts[i]] = organism.parts[i]
+                elif c.parts[i] != organism.parts[i]:
+                    match = False
+                    break
+            if match and new_values:
+                absorbed_any = False
+                for slot_name, value in new_values.items():
+                    if value.startswith("$"):
+                        continue
+                    if slot_name in c.slot_options:
+                        if value not in c.slot_options[slot_name]:
+                            c.slot_options[slot_name].add(value)
+                            absorbed_any = True
+                if absorbed_any:
+                    c.feed(0.3)
+                    self.stats["absorbed"] += 1
+                    return True
+        return False
+
     def feed_sentence(self, words):
         if not words:
             return
         word_creatures = [self.observe(w) for w in words]
+        new_organisms = []
         # Пары
         for i in range(len(word_creatures) - 1):
-            self.merge([word_creatures[i], word_creatures[i + 1]])
+            new_organisms.append(self.merge([word_creatures[i], word_creatures[i + 1]]))
         # Тройки
         for i in range(len(word_creatures) - 2):
-            self.merge([word_creatures[i], word_creatures[i + 1], word_creatures[i + 2]])
+            new_organisms.append(self.merge([word_creatures[i], word_creatures[i + 1], word_creatures[i + 2]]))
         # Полное предложение (если 3+ слов)
         if len(word_creatures) >= 3:
-            self.merge(word_creatures)
+            new_organisms.append(self.merge(word_creatures))
+        # Поглощение: каждый новый организм пробует влиться в существующую абстракцию
+        for org in new_organisms:
+            if org and not org.slot_options:
+                self._try_absorb(org)
         # Скрещивание
         all_complex = [c for c in self.creatures.values()
                        if c.alive and c.complexity >= 2 and c.times_fed >= 2]
@@ -215,6 +251,75 @@ class World:
     def run(self, ticks):
         for _ in range(ticks):
             self.tick()
+
+    def _get_context_groups(self, word):
+        """Cluster organisms containing `word` by co-occurring parts.
+        Returns list of sets, where each set = group of parts that
+        appear together with `word`."""
+        organisms = [c for c in self.creatures.values()
+                     if c.alive and c.complexity >= 2 and word in c.parts]
+        if len(organisms) < 2:
+            return []
+        contexts = []
+        for org in organisms:
+            parts = frozenset(p for p in org.parts if p != word and not p.startswith("$"))
+            if parts:
+                contexts.append((org, parts))
+        if len(contexts) < 2:
+            return []
+        groups = []
+        for org, parts in contexts:
+            merged = False
+            for g in groups:
+                if g["parts"] & parts:
+                    g["parts"] |= parts
+                    g["orgs"].append(org)
+                    merged = True
+                    break
+            if not merged:
+                groups.append({"parts": set(parts), "orgs": [org]})
+        return groups
+
+    def split(self, word, min_groups=2):
+        """If a word lives in disconnected context clusters,
+        split it into separate sense-creatures.
+        Returns list of new sense-creatures, or [] if no split needed."""
+        groups = self._get_context_groups(word)
+        if len(groups) < min_groups:
+            return []
+        all_parts = set()
+        for g in groups:
+            all_parts |= g["parts"]
+        shared = set.intersection(*(g["parts"] for g in groups)) if groups else set()
+        unique_per_group = [g["parts"] - shared for g in groups]
+        if all(len(u) == 0 for u in unique_per_group):
+            return []
+
+        new_senses = []
+        for i, g in enumerate(groups):
+            unique = unique_per_group[i]
+            if not unique:
+                continue
+            label = sorted(unique)[0]
+            sense_name = f"{word}_{label}"
+            existing = self._find_by_parts((sense_name,))
+            if existing:
+                existing.feed(0.5)
+                new_senses.append(existing)
+                continue
+            sense = Creature([sense_name])
+            original = self._find_by_parts((word,))
+            if original:
+                sense.energy = original.energy * 0.5
+                sense.times_fed = max(1, original.times_fed // len(groups))
+                sense.parent_ids = [original.id]
+                original.children.append(sense.id)
+            self._register(sense)
+            self.stats["split"] += 1
+            for org in g["orgs"]:
+                sense.children.append(org.id)
+            new_senses.append(sense)
+        return new_senses
 
     # ═══════════════════════════════════════
     # VISITING: существа ходят друг к другу в гости
