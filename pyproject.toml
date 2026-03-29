@@ -1,0 +1,10 @@
+[project]
+name = "chrysaline"
+version = "0.1.0"
+description = "Биологически-инспирированная система обучения на основе существ и абстракций"
+requires-python = ">=3.9"
+license = {text = "GPL-3.0"}
+
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.backends._legacy:_Backend"

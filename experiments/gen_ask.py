@@ -1,52 +1,10 @@
 #!/usr/bin/env python3
-"""
-AIOS — v19: Генерация и Вопросы
+"""Генерация предложений из абстракций и ответы на произвольные вопросы."""
 
-1. Генерация — система СОЗДАЁТ предложения из абстракций
-   "кот·ел·$0" → развернуть $0 → "кот ел рыбу", "кот ел мышку"
+from chrysaline import World, Visitor, Generator
+from data.rules import learn_rules
+from data.experience import EXPERIENCE
 
-2. Произвольные вопросы — "что ест кот?" → visiting → {рыбу, мышку}
-"""
-
-from atom_v17d_exercises import World, learn_rules
-
-
-# ============================================================
-# Данные для обучения
-# ============================================================
-
-EXPERIENCE = [
-    ["кот", "ел", "рыбу"],
-    ["кот", "ел", "мышку"],
-    ["кот", "ел", "сметану"],
-    ["кот", "пил", "молоко"],
-    ["кот", "спал", "на", "диване"],
-    ["кот", "спал", "на", "коврике"],
-    ["собака", "ел", "кость"],
-    ["собака", "ел", "мясо"],
-    ["собака", "спал", "на", "коврике"],
-    ["собака", "спал", "на", "улице"],
-    ["мама", "мыла", "раму"],
-    ["мама", "мыла", "посуду"],
-    ["мама", "мыла", "окно"],
-    ["мама", "варила", "кашу"],
-    ["мама", "варила", "суп"],
-    ["папа", "читал", "газету"],
-    ["папа", "читал", "книгу"],
-    ["папа", "пилил", "дрова"],
-    ["птица", "летала", "высоко"],
-    ["птица", "летала", "далеко"],
-    ["птица", "пела", "громко"],
-    ["птица", "пела", "красиво"],
-    ["рыба", "плавала", "в", "реке"],
-    ["рыба", "плавала", "в", "озере"],
-    ["рыба", "плавала", "в", "море"],
-]
-
-
-# ============================================================
-# Эксперимент 1: ГЕНЕРАЦИЯ
-# ============================================================
 
 def experiment_generation():
     print("╔═══════════════════════════════════════════════════════╗")
@@ -54,6 +12,7 @@ def experiment_generation():
     print("╚═══════════════════════════════════════════════════════╝")
 
     world = World()
+    generator = Generator(world)
 
     for r in range(3):
         for sent in EXPERIENCE:
@@ -64,9 +23,9 @@ def experiment_generation():
     abst = sum(1 for c in world.creatures.values() if c.alive and c.slot_options)
     print(f"\n  Обучено: {alive} существ, {abst} абстракций")
 
-    # 1. Найти абстракции про "кот·ел"
+    # 1. "кот·ел"
     print(f"\n  ── Генерация из 'кот·ел' ──")
-    gen_kot = world.generate_from("кот", max_per_slot=10)
+    gen_kot = generator.generate_from("кот", max_per_slot=10)
     kot_el_found = False
     for g in gen_kot:
         if "ел" in g["pattern"]:
@@ -74,11 +33,10 @@ def experiment_generation():
             for s in g["sentences"]:
                 print(f"    → {s}")
             kot_el_found = True
-            kot_el_sentences = g["sentences"]
 
-    # 2. Генерация из "мама·мыла"
+    # 2. "мама·мыла"
     print(f"\n  ── Генерация из 'мама·мыла' ──")
-    gen_mama = world.generate_from("мама", max_per_slot=10)
+    gen_mama = generator.generate_from("мама", max_per_slot=10)
     mama_myla_found = False
     for g in gen_mama:
         if "мыла" in g["pattern"]:
@@ -87,9 +45,9 @@ def experiment_generation():
                 print(f"    → {s}")
             mama_myla_found = True
 
-    # 3. Генерация из "птица"
+    # 3. "птица"
     print(f"\n  ── Генерация из 'птица' ──")
-    gen_bird = world.generate_from("птица", max_per_slot=10)
+    gen_bird = generator.generate_from("птица", max_per_slot=10)
     bird_found = False
     for g in gen_bird:
         print(f"  Паттерн: {g['pattern']} (fed={g['fed']})")
@@ -99,11 +57,12 @@ def experiment_generation():
             print(f"    ... и ещё {len(g['sentences']) - 5}")
         bird_found = True
 
-    # 4. Генерация из абстракций с правилами
+    # 4. Генерация из правил
     print(f"\n  ── Генерация из правил (учебник) ──")
     world2 = World()
+    generator2 = Generator(world2)
     learn_rules(world2)
-    gen_glasnye = world2.generate_from("гласные", max_per_slot=10)
+    gen_glasnye = generator2.generate_from("гласные", max_per_slot=10)
     glasnye_found = False
     for g in gen_glasnye:
         if "звуки" in g["pattern"] and "это" in g["pattern"]:
@@ -113,7 +72,7 @@ def experiment_generation():
             glasnye_found = True
             break
 
-    gen_zhi = world2.generate_from("пишется", max_per_slot=10)
+    gen_zhi = generator2.generate_from("пишется", max_per_slot=10)
     zhi_found = False
     for g in gen_zhi:
         print(f"  Паттерн: {g['pattern']} (fed={g['fed']})")
@@ -121,7 +80,6 @@ def experiment_generation():
             print(f"    → {s}")
         zhi_found = True
 
-    # Проверки
     ok1 = kot_el_found
     ok2 = mama_myla_found
     ok3 = bird_found
@@ -138,18 +96,14 @@ def experiment_generation():
     return ok
 
 
-# ============================================================
-# Эксперимент 2: ПРОИЗВОЛЬНЫЕ ВОПРОСЫ
-# ============================================================
-
 def experiment_questions():
     print("\n╔═══════════════════════════════════════════════════════╗")
     print("║  ВОПРОСЫ: произвольные вопросы → ответ через visiting ║")
     print("╚═══════════════════════════════════════════════════════╝")
 
     world = World()
+    generator = Generator(world)
 
-    # Учим и правила, и опыт
     learn_rules(world)
     for r in range(3):
         for sent in EXPERIENCE:
@@ -209,7 +163,7 @@ def experiment_questions():
         expected = q_info["expect_any"]
         desc = q_info["desc"]
 
-        answer = world.ask(question)
+        answer = generator.ask(question)
 
         found = set(answer["answers"]) & expected
         ok = len(found) > 0
@@ -235,13 +189,9 @@ def experiment_questions():
     return ok, passed, len(results)
 
 
-# ============================================================
-# MAIN
-# ============================================================
-
 def main():
     print("=" * 60)
-    print("  v19: ГЕНЕРАЦИЯ И ВОПРОСЫ")
+    print("  ГЕНЕРАЦИЯ И ВОПРОСЫ")
     print("=" * 60)
 
     r1 = experiment_generation()
@@ -249,7 +199,7 @@ def main():
 
     print("\n" + "=" * 60)
     print("╔═══════════════════════════════════════════════════════╗")
-    print("║            ИТОГ v19: ГЕНЕРАЦИЯ И ВОПРОСЫ              ║")
+    print("║            ИТОГ: ГЕНЕРАЦИЯ И ВОПРОСЫ                  ║")
     print("╠═══════════════════════════════════════════════════════╣")
     s1 = "✓" if r1 else "✗"
     s2 = "✓" if r2_ok else "✗"
