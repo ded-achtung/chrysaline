@@ -201,17 +201,11 @@ class World:
             if org and not org.slot_options:
                 if self._try_absorb(org):
                     absorbed_ids.add(org.id)
-        # Авто-детекция: только для НЕ-поглощённых организмов 3+ слов.
-        # Если поглотился — нормальный факт. Если нет — возможно блокер внутри.
-        old_markers = set(self.neg_markers)
-        for org in new_organisms:
-            if org and org.complexity >= 3 and org.id not in absorbed_ids:
-                self._detect_neg_markers(org)
-        # Если появились новые маркеры — пересканировать валентность
-        if self.neg_markers != old_markers:
-            for c in self.creatures.values():
-                if c.alive and c.complexity >= 2:
-                    self._apply_valence(c)
+        # Валентность: применяем только если учитель уже дал neg_markers
+        if self.neg_markers:
+            for org in new_organisms:
+                if org and org.alive:
+                    self._apply_valence(org)
         all_complex = [c for c in self.creatures.values()
                        if c.alive and c.complexity >= 2 and c.times_fed >= 2]
         crossed = set()

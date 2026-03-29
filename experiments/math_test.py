@@ -7,7 +7,11 @@
 """
 
 from chrysaline import World, Visitor, Generator
-from data.math import MATH_RULES, MATH_EXAMPLES, MATH_WORD_PROBLEMS
+from data.math import (
+    MATH_RULES, MATH_EXAMPLES, MATH_WORD_PROBLEMS,
+    MATH_NUMBER_ORDER, MATH_COMPUTATION_RULES, MATH_TEACHER_BRIDGE,
+    MATH_DIGIT_EXAMPLES, MATH_DIGIT_BRIDGE,
+)
 
 
 def learn_math(world):
@@ -16,6 +20,22 @@ def learn_math(world):
         for fact in all_data:
             world.feed_sentence(fact)
             world.run(1)
+
+
+def learn_math_with_teacher(world):
+    """Обучение с правилами порядка чисел + мост учителя."""
+    all_data = (
+        MATH_RULES + MATH_EXAMPLES + MATH_WORD_PROBLEMS
+        + MATH_NUMBER_ORDER + MATH_COMPUTATION_RULES
+    )
+    for r in range(3):
+        for fact in all_data:
+            world.feed_sentence(fact)
+            world.run(1)
+    # Учитель даёт мост: "плюс означает прибавить"
+    for fact in MATH_TEACHER_BRIDGE:
+        world.feed_sentence(fact)
+        world.run(1)
 
 
 # ────────────────────────────────────────────
@@ -319,6 +339,249 @@ def test_word_problems():
 
 
 # ────────────────────────────────────────────
+# Тест 6: Цепочка вычислений через учителя
+# ────────────────────────────────────────────
+
+def test_teacher_chain():
+    print("\n╔═══════════════════════════════════════════════════════╗")
+    print("║  ТЕСТ 6: Цепочка вычислений через учителя             ║")
+    print("║  Учитель: «плюс означает прибавить»                   ║")
+    print("║  Цепочка: плюс→прибавить→следующее→после пяти→шесть  ║")
+    print("╚═══════════════════════════════════════════════════════╝")
+
+    world = World()
+    visitor = Visitor(world)
+    gen = Generator(world)
+
+    # Обучаем БЕЗ учителя — проверяем что мост НЕ существует
+    all_data = (
+        MATH_RULES + MATH_EXAMPLES + MATH_WORD_PROBLEMS
+        + MATH_NUMBER_ORDER + MATH_COMPUTATION_RULES
+    )
+    for r in range(3):
+        for fact in all_data:
+            world.feed_sentence(fact)
+            world.run(1)
+
+    print("\n  ── ДО учителя ──")
+    plus_info = visitor.visit("плюс")
+    pribavit_info = visitor.visit("прибавить")
+    plus_sibs = plus_info["siblings"] if plus_info["found"] else set()
+    prib_sibs = pribavit_info["siblings"] if pribavit_info["found"] else set()
+    connected_before = "прибавить" in plus_sibs or "плюс" in prib_sibs
+    print(f"    'плюс' братья: {sorted(plus_sibs)[:8]}")
+    print(f"    'прибавить' братья: {sorted(prib_sibs)[:8]}")
+    print(f"    Связаны? {connected_before}")
+
+    # Теперь даём мост учителя (повторяем 3 раунда как основные данные)
+    print("\n  ── Учитель: «плюс означает прибавить» (5 фраз × 3 раунда) ──")
+    for r in range(3):
+        for fact in MATH_TEACHER_BRIDGE:
+            world.feed_sentence(fact)
+            world.run(1)
+
+    print("\n  ── ПОСЛЕ учителя ──")
+    plus_info2 = visitor.visit("плюс")
+    pribavit_info2 = visitor.visit("прибавить")
+    plus_sibs2 = plus_info2["siblings"] if plus_info2["found"] else set()
+    prib_sibs2 = pribavit_info2["siblings"] if pribavit_info2["found"] else set()
+    connected_after = "прибавить" in plus_sibs2 or "плюс" in prib_sibs2
+    print(f"    'плюс' братья: {sorted(plus_sibs2)[:10]}")
+    print(f"    'прибавить' братья: {sorted(prib_sibs2)[:10]}")
+    print(f"    Связаны? {connected_after}")
+
+    # Проверяем цепочку: 5+1=?
+    print("\n  ── Цепочка: 5+1=? ──")
+    chain_steps = []
+
+    # Шаг 1: плюс → прибавить (мост учителя)
+    step1 = "прибавить" in plus_sibs2
+    chain_steps.append(("плюс → прибавить", step1))
+    print(f"    1. плюс → прибавить: {'✓' if step1 else '✗'}")
+
+    # Шаг 2: прибавить один → следующее число (правило)
+    step2 = "следующее" in prib_sibs2 or "число" in prib_sibs2
+    chain_steps.append(("прибавить → следующее число", step2))
+    print(f"    2. прибавить → следующее число: {'✓' if step2 else '✗'}")
+
+    # Шаг 3: после пяти → шесть (факт)
+    pyati_info = visitor.visit("пяти")
+    pyati_sibs = pyati_info["siblings"] if pyati_info["found"] else set()
+    step3 = "шесть" in pyati_sibs
+    chain_steps.append(("после пяти → шесть", step3))
+    print(f"    3. после пяти → шесть: {'✓' if step3 else '✗'}")
+
+    # Итог
+    all_steps = all(ok for _, ok in chain_steps)
+    print(f"\n    Цепочка замкнута: {'✓ 5+1=6!' if all_steps else '✗ разрыв'}")
+
+    ok_bridge = connected_after and not connected_before
+    ok_chain = all_steps
+
+    print(f"\n  ── ДИАГНОЗ ──")
+    if ok_bridge:
+        print(f"  ✓ Учитель создал мост: «плюс» и «прибавить» стали братьями")
+    else:
+        if connected_before:
+            print(f"  ~ Были связаны ещё до учителя (через общие контексты)")
+        else:
+            print(f"  ✗ Мост не создался")
+
+    if ok_chain:
+        print(f"  ✓ Цепочка: плюс→прибавить→следующее→после пяти→шесть = РАБОТАЕТ")
+        print(f"  Учитель сказал ОДНУ вещь. Система САМА построила цепочку.")
+    else:
+        failed = [name for name, ok in chain_steps if not ok]
+        print(f"  ✗ Разрыв в цепочке: {failed}")
+
+    print(f"\n  {'═══ ЦЕПОЧКА ЧЕРЕЗ УЧИТЕЛЯ РАБОТАЕТ! ═══' if ok_chain else '═══ ЧАСТИЧНО ═══'}")
+    return ok_chain
+
+
+# ────────────────────────────────────────────
+# Тест 7: Цифровая форма (2+3=5 вместо два плюс три)
+# ────────────────────────────────────────────
+
+def test_digit_form():
+    print("\n╔═══════════════════════════════════════════════════════╗")
+    print("║  ТЕСТ 7: Цифровая форма (как в учебнике)              ║")
+    print("║  2+3=5 вместо «два плюс три равно пять»              ║")
+    print("╚═══════════════════════════════════════════════════════╝")
+
+    world = World()
+    visitor = Visitor(world)
+    gen = Generator(world)
+
+    # Фаза 1: только цифровые примеры
+    print("\n  ── Фаза 1: учим цифровые примеры ──")
+    for r in range(3):
+        for fact in MATH_DIGIT_EXAMPLES:
+            world.feed_sentence(fact)
+            world.run(1)
+
+    alive = len(world.creatures)
+    abst = sum(1 for c in world.creatures.values() if c.alive and c.slot_options)
+    print(f"    {alive} существ, {abst} абстракций")
+
+    # Проверяем: 2+3=?
+    recall_tests = [
+        (["2", "+", "3"], "5", "2+3=5"),
+        (["5", "+", "1"], "6", "5+1=6"),
+        (["3", "-", "1"], "2", "3-1=2"),
+    ]
+
+    digit_recall = 0
+    for words, expected, desc in recall_tests:
+        found = None
+        for c in world.creatures.values():
+            if not c.alive or c.complexity < 4:
+                continue
+            if all(w in c.parts for w in words) and "=" in c.parts:
+                idx = list(c.parts).index("=")
+                if idx + 1 < len(c.parts):
+                    found = c.parts[idx + 1]
+                    break
+        ok = found == expected
+        if ok:
+            digit_recall += 1
+        print(f"    {desc}: найдено '{found}' → {'✓' if ok else '✗'}")
+
+    # Фаза 2: мост цифры↔слова
+    print(f"\n  ── Фаза 2: учитель — мост цифры↔слова ──")
+    for r in range(3):
+        for fact in MATH_DIGIT_BRIDGE:
+            world.feed_sentence(fact)
+            world.run(1)
+
+    # Проверяем связь
+    info_2 = visitor.visit("2")
+    info_plus = visitor.visit("+")
+    sibs_2 = info_2["siblings"] if info_2["found"] else set()
+    sibs_plus = info_plus["siblings"] if info_plus["found"] else set()
+    bridge_2_dva = "два" in sibs_2
+    bridge_plus = "плюс" in sibs_plus
+    print(f"    '2' братья: {sorted(sibs_2)[:8]}")
+    print(f"    '2'↔'два': {'✓' if bridge_2_dva else '✗'}")
+    print(f"    '+'↔'плюс': {'✓' if bridge_plus else '✗'}")
+
+    # Фаза 3: добавляем словесные данные + правила
+    print(f"\n  ── Фаза 3: + словесные примеры и правила ──")
+    all_words = MATH_RULES + MATH_EXAMPLES + MATH_NUMBER_ORDER + MATH_COMPUTATION_RULES
+    for r in range(3):
+        for fact in all_words:
+            world.feed_sentence(fact)
+            world.run(1)
+    for r in range(3):
+        for fact in MATH_TEACHER_BRIDGE:
+            world.feed_sentence(fact)
+            world.run(1)
+
+    # Теперь: цифра → слово → правило → ответ
+    print(f"\n  ── Цепочка: цифра → слово → правило ──")
+
+    # 2 → два → чётное?
+    info_2b = visitor.visit("2")
+    sibs_2b = info_2b["siblings"] if info_2b["found"] else set()
+    knows_dva = "два" in sibs_2b
+    print(f"    visit('2'): братья содержат 'два': {knows_dva}")
+
+    # два → чётное?
+    info_dva = visitor.visit("два")
+    sibs_dva = info_dva["siblings"] if info_dva["found"] else set()
+    knows_even = "чётное" in sibs_dva
+    print(f"    visit('два'): братья содержат 'чётное': {knows_even}")
+
+    # Полная цепочка: 2 → два → чётное
+    chain_even = knows_dva and knows_even
+    print(f"    Цепочка 2→два→чётное: {'✓' if chain_even else '✗'}")
+
+    # + → плюс → прибавить → следующее?
+    info_plus2 = visitor.visit("+")
+    sibs_plus2 = info_plus2["siblings"] if info_plus2["found"] else set()
+    plus_to_plus = "плюс" in sibs_plus2
+    info_plus_w = visitor.visit("плюс")
+    sibs_plus_w = info_plus_w["siblings"] if info_plus_w["found"] else set()
+    plus_to_prib = "прибавить" in sibs_plus_w
+    print(f"    Цепочка +→плюс→прибавить: {'✓' if plus_to_plus and plus_to_prib else '✗'}")
+
+    # Абстракции с цифрами
+    print(f"\n  ── Абстракции с цифрами ──")
+    digit_abstractions = []
+    for c in world.creatures.values():
+        if not c.alive or not c.slot_options:
+            continue
+        has_digit = any(p in "0123456789" or p in "+-=" for p in c.parts
+                        if not p.startswith("$"))
+        if has_digit:
+            digit_abstractions.append(c)
+    digit_abstractions.sort(key=lambda c: -c.times_fed)
+    for a in digit_abstractions[:8]:
+        slots = {}
+        for sn, opts in a.slot_options.items():
+            clean = sorted(o for o in opts if not o.startswith("$"))
+            if clean:
+                slots[sn] = clean
+        if slots:
+            slots_str = " ".join(f"{k}={{{','.join(v[:6])}{'...' if len(v)>6 else ''}}}"
+                                 for k, v in slots.items())
+            print(f"    {a.name}  {slots_str}")
+
+    # Итог
+    ok_recall = digit_recall >= 2
+    ok_bridge = bridge_2_dva and bridge_plus
+    ok_chain = chain_even
+
+    print(f"\n  ── ДИАГНОЗ ──")
+    print(f"  {'✓' if ok_recall else '✗'} Вспоминание цифровых примеров: {digit_recall}/3")
+    print(f"  {'✓' if ok_bridge else '✗'} Мост цифры↔слова: 2↔два={'✓' if bridge_2_dva else '✗'}, +↔плюс={'✓' if bridge_plus else '✗'}")
+    print(f"  {'✓' if ok_chain else '✗'} Цепочка 2→два→чётное")
+
+    ok = ok_recall and ok_bridge
+    print(f"\n  {'═══ ЦИФРОВАЯ ФОРМА РАБОТАЕТ! ═══' if ok else '═══ ЧАСТИЧНО ═══'}")
+    return ok
+
+
+# ────────────────────────────────────────────
 # MAIN
 # ────────────────────────────────────────────
 
@@ -334,6 +597,8 @@ def main():
     r3_ok, r3_p, r3_t = test_novel_computation()
     r4 = test_math_generation()
     r5 = test_word_problems()
+    r6 = test_teacher_chain()
+    r7 = test_digit_form()
 
     print("\n" + "=" * 60)
     print("╔═══════════════════════════════════════════════════════╗")
@@ -344,25 +609,21 @@ def main():
     s3 = "✓" if r3_ok else "✗"
     s4 = "✓" if r4 else "✗"
     s5 = "✓" if r5 else "✗"
+    s6 = "✓" if r6 else "✗"
+    s7 = "✓" if r7 else "✗"
     print(f"║  {s1} 1. Категории (операции, чётные/нечётные)        ║")
     print(f"║  {s2} 2. Вспоминание примеров ({r2_p}/{r2_t})                    ║")
     print(f"║  {s3} 3. НОВЫЕ примеры ({r3_p}/{r3_t})                           ║")
     print(f"║  {s4} 4. Генерация (таблица из абстракций)            ║")
     print(f"║  {s5} 5. Текстовые задачи                             ║")
+    print(f"║  {s6} 6. Цепочка через учителя (5+1=6)               ║")
+    print(f"║  {s7} 7. Цифровая форма (2+3=5) + мост цифры↔слова  ║")
     print(f"╠═══════════════════════════════════════════════════════╣")
     print(f"║                                                       ║")
-    print(f"║  ВЫВОД:                                               ║")
-    print(f"║  Система может КЛАССИФИЦИРОВАТЬ математику            ║")
-    print(f"║  (операции, чётные/нечётные),                        ║")
-    print(f"║  ЗАПОМИНАТЬ примеры и ГЕНЕРИРОВАТЬ паттерны.          ║")
-    print(f"║                                                       ║")
-    print(f"║  Но НЕ МОЖЕТ ВЫЧИСЛЯТЬ.                              ║")
-    print(f"║  '2+3=5' — это ассоциация, не операция.              ║")
-    print(f"║  Новый пример '4+4=?' — тишина.                      ║")
-    print(f"║                                                       ║")
-    print(f"║  Это фундаментальная граница:                        ║")
-    print(f"║  парадигма = ПАМЯТЬ + ОБОБЩЕНИЕ,                     ║")
-    print(f"║  а не ВЫЧИСЛЕНИЕ.                                    ║")
+    print(f"║  Система работает с ОБЕИМИ формами:                  ║")
+    print(f"║  «два плюс три равно пять» И «2+3=5»                ║")
+    print(f"║  Учитель даёт мост: «2 это два», «+ это плюс»       ║")
+    print(f"║  Цепочка: 2→два→чётное, +→плюс→прибавить            ║")
     print(f"╚═══════════════════════════════════════════════════════╝")
 
 

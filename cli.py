@@ -11,7 +11,13 @@ EXPERIMENTS = {
     "gen_ask": ("experiments.gen_ask", "Генерация предложений и ответы на вопросы"),
     "proof": ("experiments.proof_of_generality", "Доказательство универсальности парадигмы (новый предмет)"),
     "stress": ("experiments.stress_test", "Стресс-тест: границы парадигмы (отрицание, омонимия, объяснения, масштаб)"),
-    "math": ("experiments.math_test", "Математический тест: арифметика, задачи, вычисления"),
+    "math": ("experiments.math_test", "Математический тест: арифметика, задачи, вычисления, цепочка через учителя"),
+    "japanese": ("experiments.japanese_test", "Многоязычность: японский и китайский (пословно + посимвольно)"),
+    "chinese": ("experiments.chinese_stress", "Китайский посимвольный стресс-тест: 4 удара"),
+    "zhishi": ("experiments.zhi_shi_discovery", "Найдёт ли система правило ЖИ-ШИ из наблюдений?"),
+    "zhishi2": ("experiments.zhi_shi_vs_ky", "Железное ядро {ж,ш} vs периферия {к,р,н} перед И"),
+    "compete": ("experiments.competition_tests", "Конкуренция механизмов: правило+исключения, наблюдения+книга"),
+    "bridge": ("experiments.bridge_natural", "Естественный мост: наблюдения + 5 формулировок книги"),
 }
 
 

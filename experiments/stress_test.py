@@ -37,7 +37,7 @@ def learn_facts(world, facts):
 def test_negation():
     print("╔═══════════════════════════════════════════════════════╗")
     print("║  НАПРАВЛЕНИЕ 1: ОТРИЦАНИЕ И ИСКЛЮЧЕНИЯ               ║")
-    print("║  Авто-детекция «не» через противоречия               ║")
+    print("║  Учитель: «не» — маркер отрицания                    ║")
     print("╚═══════════════════════════════════════════════════════╝")
 
     world = World()
@@ -47,29 +47,24 @@ def test_negation():
     learn_facts(world, NEGATION_POSITIVE)
     abst_after_pos = sum(1 for c in world.creatures.values() if c.alive and c.slot_options)
     print(f"\n  Фаза 1 (позитив): {len(world.creatures)} существ, {abst_after_pos} абстракций")
-    print(f"  neg_markers до отрицаний: {world.neg_markers or '{}'}")
 
-    # Фаза 2: отрицания — авто-детекция маркеров
+    # Учитель говорит: "не" — маркер отрицания
+    world.learn_negation("не")
+    print(f"  Учитель: learn_negation('не') → neg_markers: {world.neg_markers}")
+
+    # Фаза 2: отрицания — теперь система знает что "не" = отрицание
     learn_facts(world, NEGATION_NEGATIVE)
     alive = len(world.creatures)
     abst = sum(1 for c in world.creatures.values() if c.alive and c.slot_options)
     print(f"  Фаза 2 (+отрицания): {alive} существ, {abst} абстракций")
-    print(f"  neg_markers ПОСЛЕ: {world.neg_markers or '{}'}")
+    print(f"  neg_markers: {world.neg_markers}")
 
-    # --- Тест 0: авто-детекция "не" ---
-    auto_detected = "не" in world.neg_markers
-    print(f"\n  Тест 0: Авто-детекция маркера 'не'")
-    print(f"    'не' в neg_markers: {auto_detected}")
-    print(f"    Кандидаты: {world._neg_candidates}")
-    if auto_detected:
-        print(f"    СИСТЕМА САМА НАШЛА 'не' через противоречия!")
-
-    # --- Тест 1а: страус — птица? ---
+    # --- Тест 1: страус — птица? ---
     straus_info = visitor.visit("страус")
     is_bird = "птица" in straus_info["siblings"]
     fly_in_neg = "летает" in straus_info.get("neg_siblings", set())
     fly_in_pos = "летает" in straus_info["siblings"]
-    print(f"\n  Тест 1а: страус — птица?")
+    print(f"\n  Тест 1: страус — птица?")
     print(f"    pos siblings: {sorted(straus_info['siblings'])}")
     print(f"    neg siblings: {sorted(straus_info.get('neg_siblings', set()))}")
     print(f"    страус → птица (pos): {is_bird}")
@@ -81,7 +76,7 @@ def test_negation():
     kit_is_mammal = "млекопитающее" in kit_info["siblings"]
     fish_in_neg = "рыба" in kit_info.get("neg_siblings", set())
     fish_in_pos = "рыба" in kit_info["siblings"]
-    print(f"\n  Тест 1б: кит — рыба или млекопитающее?")
+    print(f"\n  Тест 2: кит — рыба или млекопитающее?")
     print(f"    pos siblings: {sorted(kit_info['siblings'])}")
     print(f"    neg siblings: {sorted(kit_info.get('neg_siblings', set()))}")
     print(f"    кит → млекопитающее (pos): {kit_is_mammal}")
@@ -92,7 +87,7 @@ def test_negation():
     gen = Generator(world)
     answer = gen.ask("кто летает?")
     flyers = set(answer["answers"])
-    print(f"\n  Тест 1в: «кто летает?»")
+    print(f"\n  Тест 3: «кто летает?»")
     print(f"    Ответ: {answer['answers'][:10]}")
     if answer["reasoning"]:
         for r in answer["reasoning"][:3]:
@@ -103,7 +98,6 @@ def test_negation():
     print(f"    пингвин в ответе: {penguin_in_flyers} (должен быть НЕТ)")
 
     # --- Диагноз ---
-    ok_auto = auto_detected
     ok_bird = is_bird
     ok_mammal = kit_is_mammal
     ok_neg_fly = fly_in_neg and not fly_in_pos
@@ -111,18 +105,17 @@ def test_negation():
     ok_no_straus = not straus_in_flyers and not penguin_in_flyers
 
     print(f"\n  ── ДИАГНОЗ ──")
-    print(f"  ✓ Авто-детекция 'не': {ok_auto}")
     print(f"  ✓ Категории (страус=птица, кит=млек.): {ok_bird and ok_mammal}")
     print(f"  ✓ 'летает' в neg для страуса: {ok_neg_fly}")
     print(f"  ✓ 'рыба' в neg для кита: {ok_neg_fish}")
     print(f"  ✓ ask('кто летает?') без страуса/пингвина: {ok_no_straus}")
 
-    negation_works = ok_auto and ok_neg_fly and ok_no_straus
+    negation_works = ok_neg_fly and ok_no_straus
     return {
         "categories_ok": ok_bird and ok_mammal,
         "negation_broken": not negation_works,
-        "auto_detected": ok_auto,
-        "detail": "валентность работает" if negation_works else "нужна доработка",
+        "teacher_negation": True,
+        "detail": "учитель + валентность работает" if negation_works else "нужна доработка",
     }
 
 
@@ -538,12 +531,10 @@ def main():
     # 1. Отрицание
     if r1["negation_broken"]:
         print("║  ~ 1. ОТРИЦАНИЕ — ЧАСТИЧНО                           ║")
-        if r1.get("auto_detected"):
-            print("║     'не' найдено авто-детекцией!                      ║")
-        print("║     Валентность есть, фильтрация неполная.            ║")
+        print("║     Учитель дал 'не', но фильтрация неполная.        ║")
     else:
         print("║  ✓ 1. ОТРИЦАНИЕ — РАБОТАЕТ                           ║")
-        print("║     'не' найдено авто-детекцией через противоречия.   ║")
+        print("║     Учитель: learn_negation('не').                    ║")
         print("║     Валентность +1/-1 разделяет evidence.             ║")
 
     # 2. Омонимия
@@ -582,9 +573,8 @@ def main():
     print("║    • Масштабирование (200+ фактов)                    ║")
     print("║    • Кросс-доменные связи                             ║")
     print("║                                                       ║")
-    print("║  НЕ РАБОТАЕТ (нужны новые механизмы):                 ║")
-    print("║    • Отрицание (нет полярности связей)                ║")
-    print("║    • 'Почему?' через ask() (нужен explain())          ║")
+    print("║  ГРАНИЦЫ:                                             ║")
+    print("║    ��� 'Почему?' через ask() (нужен explain())          ║")
     print("║    • Точное расщепление на 3+ смысла                  ║")
     print("║                                                       ║")
     print("╚═══════════════════════════════════════════════════════╝")
