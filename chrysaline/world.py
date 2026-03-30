@@ -201,6 +201,32 @@ class World:
             if org and not org.slot_options:
                 if self._try_absorb(org):
                     absorbed_ids.add(org.id)
+
+        # ══════════════════════════════════════════════════
+        # НОВОЕ: Visiting-шаг — подкормка связей через контекст
+        # Для каждого слова находим организмы с ним через индекс,
+        # если 2+ слов из предложения встречаются в одном организме —
+        # подкармливаем его.
+        # ══════════════════════════════════════════════════
+        if len(words) >= 2:
+            words_set = set(words)
+            # Собираем кандидатов через children слов (быстрый путь)
+            candidate_ids = set()
+            for wc in word_creatures:
+                for child_id in wc.children:
+                    candidate_ids.add(child_id)
+            # Проверяем только кандидатов, не все существа
+            for cid in candidate_ids:
+                if cid not in self.creatures:
+                    continue
+                c = self.creatures[cid]
+                if not c.alive or c.complexity < 2:
+                    continue
+                overlap = sum(1 for p in c.parts if p in words_set)
+                if overlap >= 2:
+                    c.feed(0.2)
+                    self.stats["fed"] += 1
+
         # Валентность: применяем только если учитель уже дал neg_markers
         if self.neg_markers:
             for org in new_organisms:
