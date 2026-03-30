@@ -19,6 +19,7 @@ EXPERIMENTS = {
     "compete": ("experiments.competition_tests", "Конкуренция механизмов: правило+исключения, наблюдения+книга"),
     "bridge": ("experiments.bridge_natural", "Естественный мост: наблюдения + 5 формулировок книги"),
     "punctuation": ("experiments.punctuation_test", "Обучение пунктуации: правила → сырой текст → проверка"),
+    "punctuation_raw": ("experiments.punctuation_raw", "Пунктуация посимвольно: чистое наблюдение без подсказок"),
 }
 
 
