@@ -224,4 +224,15 @@ class Generator:
                     result["reasoning"].append(
                         f"neg-фильтр убрал: {sorted(neg_evidence & seen)}")
 
+        # ══════════════════════════════════════════════════
+        # НОВОЕ: Обучение на собственном опыте
+        # Результат ask() возвращается в экосистему
+        # ══════════════════════════════════════════════════
+        if result["answers"]:
+            for answer in result["answers"][:3]:  # максимум 3 ответа
+                # Формируем предложение из ключевых слов + ответ
+                experience = content_words + [answer]
+                if len(experience) >= 2:
+                    self.world.feed_sentence(experience)
+
         return result
