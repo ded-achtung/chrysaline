@@ -23,6 +23,7 @@ EXPERIMENTS = {
     "punctuation_bridge": ("experiments.punctuation_bridge", "Пунктуация + мосты: символы → понятия → правила"),
     "lesson1": ("experiments.lesson1_reading", "Урок 1: алфавит и чтение — от букв к предложениям"),
     "lesson1s": ("experiments.lesson1_stream", "Урок 1 (v2): обучение + сырой текст ПОТОКОМ"),
+    "level1": ("experiments.level1_letters", "Уровень 1: буквы → слоги → слова (как в 1 классе)"),
 }
 
 
