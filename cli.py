@@ -27,6 +27,7 @@ EXPERIMENTS = {
     "level2": ("experiments.level2_sentences", "Уровень 2: предложения и пунктуация (поверх уровня 1)"),
     "punct2": ("experiments.punctuation_after_level1", "Пунктуация после Уровня 1: фундамент → правила → сырой текст"),
     "level3": ("experiments.level3_raw_text", "Уровень 3: сырой текст после обучения (новые тексты)"),
+    "level3r": ("experiments.level3_read", "Уровень 3: метод read() — система сама решает как читать"),
 }
 
 
