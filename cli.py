@@ -29,6 +29,7 @@ EXPERIMENTS = {
     "level3": ("experiments.level3_raw_text", "Уровень 3: сырой текст после обучения (новые тексты)"),
     "level3r": ("experiments.level3_read", "Уровень 3: метод read() — система сама решает как читать"),
     "level4": ("experiments.level4_fairy_tales", "Уровень 4: чтение настоящих сказок (Курочка Ряба + Репка)"),
+    "level5": ("experiments.level5_mixed", "Уровень 5: смешанный текст — детская энциклопедия"),
 }
 
 
