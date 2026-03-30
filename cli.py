@@ -25,6 +25,7 @@ EXPERIMENTS = {
     "lesson1s": ("experiments.lesson1_stream", "Урок 1 (v2): обучение + сырой текст ПОТОКОМ"),
     "level1": ("experiments.level1_letters", "Уровень 1: буквы → слоги → слова (как в 1 классе)"),
     "punct2": ("experiments.punctuation_after_level1", "Пунктуация после Уровня 1: фундамент → правила → сырой текст"),
+    "level3": ("experiments.level3_raw_text", "Уровень 3: сырой текст после обучения (новые тексты)"),
 }
 
 
