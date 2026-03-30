@@ -18,6 +18,7 @@ EXPERIMENTS = {
     "zhishi2": ("experiments.zhi_shi_vs_ky", "Железное ядро {ж,ш} vs периферия {к,р,н} перед И"),
     "compete": ("experiments.competition_tests", "Конкуренция механизмов: правило+исключения, наблюдения+книга"),
     "bridge": ("experiments.bridge_natural", "Естественный мост: наблюдения + 5 формулировок книги"),
+    "punctuation": ("experiments.punctuation_test", "Обучение пунктуации: правила → сырой текст → проверка"),
 }
 
 
