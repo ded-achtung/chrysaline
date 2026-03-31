@@ -9,41 +9,6 @@
 from chrysaline import World, Visitor, Generator
 
 
-def read(self, text):
-    visitor = Visitor(self)
-    knows_space = False
-    si = visitor.visit(" ")
-    if si["found"]:
-        s = si["siblings"]
-        if "пробел" in s or "разделяет" in s or "слова" in s:
-            knows_space = True
-    knows_dot = False
-    di = visitor.visit(".")
-    if di["found"]:
-        d = di["siblings"]
-        if "точка" in d or "конец" in d or "предложения" in d:
-            knows_dot = True
-    if knows_space:
-        raw = [t for t in text.split(" ") if t]
-        if knows_dot:
-            tokens = []
-            for t in raw:
-                if t.endswith(".") and len(t) > 1:
-                    tokens.append(t[:-1]); tokens.append(".")
-                elif t == ".": tokens.append(".")
-                else: tokens.append(t)
-            sents, cur = [], []
-            for t in tokens:
-                if t == ".":
-                    if cur: cur.append("."); sents.append(cur); cur = []
-                else: cur.append(t)
-            if cur: sents.append(cur)
-            for s in sents: self.feed_sentence(s); self.run(1)
-        else: self.feed_sentence(raw); self.run(1)
-    else: self.feed_sentence(list(text)); self.run(1)
-
-World.read = read
-
 
 LEVEL1 = [
     ["а", "это", "гласная", "буква"], ["о", "это", "гласная", "буква"],
@@ -58,9 +23,8 @@ BRIDGES = [
     [" ", "разделяет", "слова"],
     [".", "означает", "конец", "предложения"],
     ["пробел", "разделяет", "слова"],
-    ["Кот", "и", "кот", "это", "одно", "слово"],
-    ["Собака", "и", "собака", "это", "одно", "слово"],
-    ["Корова", "и", "корова", "это", "одно", "слово"],
+    ["после", "точки", "слово", "с", "большой", "буквы"],
+    ["большая", "буква", "в", "начале", "предложения"],
 ]
 
 TEXT = "Кот это предмет. Собака это предмет. Корова это предмет. Существительное обозначает предмет. Глагол обозначает действие. Бегать это действие. Читать это действие. Красный это признак. Прилагательное обозначает признак. Кот живёт в доме. Собака живёт в доме. Корова живёт на ферме. Кот ест рыбу. Собака ест мясо. Корова ест траву."

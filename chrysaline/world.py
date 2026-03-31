@@ -564,6 +564,113 @@ class World:
         result.sort(key=lambda c: (-c.times_fed, -c.energy))
         return result
 
+    def read(self, text):
+        """Прочитать сырой текст, используя знания системы.
+
+        Система сама решает как разбить:
+        - Знает пробел → split по пробелам
+        - Знает точку → отделить точку, разбить на предложения
+        - Знает правило большой буквы → создать мост автоматически
+        - Ничего не знает → посимвольно
+        """
+        from .visitor import Visitor
+        visitor = Visitor(self)
+
+        # Знает ли система пробел?
+        knows_space = False
+        si = visitor.visit(" ")
+        if si["found"]:
+            s = si["siblings"]
+            if "пробел" in s or "разделяет" in s or "слова" in s:
+                knows_space = True
+
+        # Знает ли система точку?
+        knows_dot = False
+        di = visitor.visit(".")
+        if di["found"]:
+            d = di["siblings"]
+            if "точка" in d or "конец" in d or "предложения" in d:
+                knows_dot = True
+
+        # Знает ли правило большой буквы?
+        knows_capital = False
+        for c in self.creatures.values():
+            if not c.alive or c.complexity < 3:
+                continue
+            parts_set = set(c.parts)
+            if "большой" in parts_set and ("буквы" in parts_set or "буква" in parts_set):
+                if "после" in parts_set or "точки" in parts_set or "начале" in parts_set:
+                    knows_capital = True
+                    break
+
+        if knows_space:
+            raw_tokens = [t for t in text.split(" ") if t]
+
+            if knows_dot:
+                # Отделяем точку
+                tokens = []
+                for t in raw_tokens:
+                    if t.endswith(".") and len(t) > 1:
+                        tokens.append(t[:-1])
+                        tokens.append(".")
+                    elif t == ".":
+                        tokens.append(".")
+                    else:
+                        tokens.append(t)
+
+                # Разбиваем на предложения
+                sentences = []
+                current = []
+                for t in tokens:
+                    if t == ".":
+                        if current:
+                            current.append(".")
+                            sentences.append(current)
+                            current = []
+                    else:
+                        current.append(t)
+                if current:
+                    sentences.append(current)
+
+                # Применяем правило большой буквы
+                if knows_capital:
+                    bridged = set()
+                    for sent in sentences:
+                        if not sent:
+                            continue
+                        first_word = sent[0]
+                        # Первое слово с большой буквы?
+                        if first_word and first_word[0].isupper() and len(first_word) > 1:
+                            lower = first_word[0].lower() + first_word[1:]
+                            if lower != first_word and lower not in bridged:
+                                # Проверяем: мост уже существует?
+                                existing = self._find_by_parts(
+                                    (first_word, "и", lower, "это", "одно", "слово"))
+                                if not existing:
+                                    # Создаём мост автоматически
+                                    self.feed_sentence(
+                                        [first_word, "и", lower, "это", "одно", "слово"])
+                                bridged.add(lower)
+
+                # Подаём предложения
+                for sent in sentences:
+                    self.feed_sentence(sent)
+                    self.run(1)
+            else:
+                self.feed_sentence(raw_tokens)
+                self.run(1)
+        else:
+            self.feed_sentence(list(text))
+            self.run(1)
+
+        return {
+            "knows_space": knows_space,
+            "knows_dot": knows_dot,
+            "knows_capital": knows_capital,
+            "mode": "sentences" if (knows_space and knows_dot) else
+                    "words" if knows_space else "chars"
+        }
+
     def service_score(self, word):
         """Насколько слово «служебное» — по его ПОВЕДЕНИЮ, не по списку.
 
