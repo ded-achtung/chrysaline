@@ -32,6 +32,7 @@ EXPERIMENTS = {
     "level5": ("experiments.level5_mixed", "Уровень 5: смешанный текст — детская энциклопедия"),
     "level6": ("experiments.level6_textbook", "Уровень 6: настоящий учебник русского языка 1-2 класс"),
     "think": ("experiments.think_test", "Метод think() — система делает выводы из знаний"),
+    "feedback": ("experiments.feedback_test", "Обучение на опыте — learn_from_feedback()"),
 }
 
 
