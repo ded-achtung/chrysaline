@@ -282,13 +282,49 @@ class World:
         if not words:
             return
         word_creatures = [self.observe(w) for w in words]
+
+        # ══════════════════════════════════════════════════
+        # Проверка сомнительности: для каждого слова проверяем
+        # есть ли у его пар (с соседями) сильный конкурент.
+        # Если да — слово сомнительно в этом контексте.
+        # ══════════════════════════════════════════════════
+        suspect_indices = set()
+        if len(words) >= 2:
+            for i in range(len(words)):
+                w_i = words[i]
+                # Проверяем пары: слово + сосед
+                for j in [i - 1, i + 1]:
+                    if j < 0 or j >= len(words):
+                        continue
+                    pair = (words[min(i, j)], words[max(i, j)])
+                    pair_cr = self._find_by_parts(pair)
+                    if not pair_cr:
+                        continue
+                    # Есть ли конкурент для этой пары?
+                    comp_e = self._find_competitor_energy(pair)
+                    if comp_e > 0 and (pair_cr.energy < comp_e * 0.5):
+                        suspect_indices.add(i)
+
         new_organisms = []
         for i in range(len(word_creatures) - 1):
-            new_organisms.append(self.merge([word_creatures[i], word_creatures[i + 1]]))
+            org = self.merge([word_creatures[i], word_creatures[i + 1]])
+            # Если один из участников сомнителен — ослабить
+            if i in suspect_indices or (i + 1) in suspect_indices:
+                if org and org.energy > 0.2:
+                    org.energy = 0.2
+            new_organisms.append(org)
         for i in range(len(word_creatures) - 2):
-            new_organisms.append(self.merge([word_creatures[i], word_creatures[i + 1], word_creatures[i + 2]]))
+            org = self.merge([word_creatures[i], word_creatures[i + 1], word_creatures[i + 2]])
+            if any(k in suspect_indices for k in [i, i + 1, i + 2]):
+                if org and org.energy > 0.2:
+                    org.energy = 0.2
+            new_organisms.append(org)
         if len(word_creatures) >= 3:
-            new_organisms.append(self.merge(word_creatures))
+            org = self.merge(word_creatures)
+            if suspect_indices:
+                if org and org.energy > 0.2:
+                    org.energy = 0.2
+            new_organisms.append(org)
         absorbed_ids = set()
         for org in new_organisms:
             if org and not org.slot_options:
