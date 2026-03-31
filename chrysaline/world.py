@@ -356,6 +356,86 @@ class World:
                     c.feed(0.2)
                     self.stats["fed"] += 1
 
+        # ══════════════════════════════════════════════════
+        # Мышление при чтении: для каждого слова в предложении
+        # ищем транзитивные цепочки A→B→C.
+        # Максимум 2 вывода за предложение.
+        # ══════════════════════════════════════════════════
+        if len(words) >= 2:
+            link_words_set = {"это", "обозначает", "означает"}
+            inferences_made = 0
+            for word_a in words:
+                if inferences_made >= 2:
+                    break
+                if len(word_a) <= 2 or word_a in link_words_set:
+                    continue
+                cr_a = self._find_by_parts((word_a,))
+                if not cr_a or cr_a.energy < 1.5:
+                    continue
+                from .visitor import Visitor
+                vis = Visitor(self)
+                info_a = vis.visit(word_a)
+                if not info_a["found"]:
+                    continue
+                for word_b in info_a["siblings"]:
+                    if inferences_made >= 2:
+                        break
+                    if word_b in link_words_set or len(word_b) <= 1:
+                        continue
+                    if self.service_score(word_b) > 0.4:
+                        continue
+                    info_b = vis.visit(word_b)
+                    if not info_b["found"]:
+                        continue
+                    for word_c in info_b["siblings"]:
+                        if inferences_made >= 2:
+                            break
+                        if word_c == word_a or word_c == word_b:
+                            continue
+                        if word_c in info_a["siblings"]:
+                            continue  # A уже знает C
+                        if word_c in link_words_set or len(word_c) <= 1:
+                            continue
+                        # Проверяем: оба звена через link_word?
+                        lab, lbc = None, None
+                        for org in self.creatures.values():
+                            if not org.alive or org.complexity < 2:
+                                continue
+                            ps = set(org.parts)
+                            if word_a in ps and word_b in ps:
+                                for p in org.parts:
+                                    if p in link_words_set:
+                                        lab = p; break
+                            if word_b in ps and word_c in ps:
+                                for p in org.parts:
+                                    if p in link_words_set:
+                                        lbc = p; break
+                        if not lab or not lbc:
+                            continue
+                        links = {lab, lbc}
+                        if not ("это" in links and "обозначает" in links):
+                            continue
+                        # Не в одном слоте (коллеги)?
+                        same_slot = False
+                        for org in self.creatures.values():
+                            if not org.alive or not org.slot_options:
+                                continue
+                            if word_b not in org.parts:
+                                continue
+                            for sn, opts in org.slot_options.items():
+                                cl = {o for o in opts if not o.startswith("$")}
+                                if word_a in cl and word_c in cl:
+                                    same_slot = True; break
+                            if same_slot:
+                                break
+                        if same_slot:
+                            continue
+                        # Уже существует?
+                        if self._find_by_parts((word_a, "это", word_c)):
+                            continue
+                        self.feed_sentence([word_a, "это", word_c])
+                        inferences_made += 1
+
         # Валентность: применяем только если учитель уже дал neg_markers
         if self.neg_markers:
             for org in new_organisms:
