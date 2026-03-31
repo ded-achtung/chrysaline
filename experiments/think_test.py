@@ -125,6 +125,9 @@ def think(self, max_inferences=20, min_energy=1.5, verbose=True):
                     existing_pairs.add((parts_clean[i], parts_clean[j]))
                     existing_pairs.add((parts_clean[j], parts_clean[i]))
 
+    # Кэш уникальных контекстов для слов-посредников
+    context_cache = {}
+
     # Для каждого сильного слова A ищем цепочки A→B→C
     for word_a in strong_words:
         if len(inferences) >= max_inferences:
@@ -150,6 +153,22 @@ def think(self, max_inferences=20, min_energy=1.5, verbose=True):
                 continue
             # B (связующее звено) должен быть содержательным — строгий порог
             if self.service_score(word_b) > bridge_threshold:
+                continue
+            # B должен участвовать в >= 2 уникальных контекстах
+            # (иначе это мост регистра, не смысловая связь)
+            if word_b not in context_cache:
+                contexts = set()
+                for cr in self.creatures.values():
+                    if not cr.alive or cr.complexity < 2:
+                        continue
+                    if word_b not in cr.parts:
+                        continue
+                    other = tuple(p for p in cr.parts
+                                  if p != word_b and not p.startswith("$"))
+                    if other:
+                        contexts.add(other)
+                context_cache[word_b] = len(contexts)
+            if context_cache[word_b] < 2:
                 continue
 
             info_b = visitor.visit(word_b)
