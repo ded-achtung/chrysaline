@@ -227,6 +227,43 @@ def think(self, max_inferences=20, min_energy=1.5, verbose=True):
                 else:
                     continue
 
+                # ═══ САМОПРОВЕРКА ═══
+                # B (связующее звено) должен быть известен ОБА — и A, и C.
+                # Если B в братьях только одного из них — вывод сомнителен.
+                b_in_a = word_b in siblings_a
+                b_in_c = word_b in siblings_b  # siblings_b = братья B, а C в них
+                # Прямая проверка: C знает B?
+                info_c = visitor.visit(word_c)
+                c_knows_b = info_c["found"] and word_b in info_c["siblings"]
+                # A знает B (уже проверено — word_b in siblings_a)
+                a_knows_b = b_in_a
+
+                if not a_knows_b and not c_knows_b:
+                    continue  # Ни A ни C не знают B — мусор
+
+                # Дополнительно: для паттерна "A это C" через B,
+                # если A и C уже в одном слоте абстракции вида
+                # $0·это·B (т.е. они "коллеги" в категории B) —
+                # вывод "A это C" бессмысленен (Кот это Собака).
+                # НО: проверяем только слоты где B — фиксированная часть.
+                if link_out == "это":
+                    is_same_category = False
+                    for cr in self.creatures.values():
+                        if not cr.alive or not cr.slot_options:
+                            continue
+                        # Только абстракции вида $0·link·B (где B=word_b)
+                        if word_b not in cr.parts:
+                            continue
+                        for sn, opts in cr.slot_options.items():
+                            clean_opts = {o for o in opts if not o.startswith("$")}
+                            if word_a in clean_opts and word_c in clean_opts:
+                                is_same_category = True
+                                break
+                        if is_same_category:
+                            break
+                    if is_same_category:
+                        continue  # A и C в одном слоте через B — мусор
+
                 inference = [word_a, link_out, word_c]
                 inferences.append({
                     "chain": f"{word_a} →({link_ab})→ {word_b} →({link_bc})→ {word_c}",
