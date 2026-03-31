@@ -104,7 +104,7 @@ def think(self, max_inferences=20, min_energy=1.5, verbose=True):
     # Порог для A/C (субъект/объект вывода) — мягче
     noise_threshold = 0.3
     # Порог для B (связующее звено) — строже, отсекает "и","одно","слово"
-    bridge_threshold = 0.42
+    bridge_threshold = 0.45
     noise = set()
     for w in strong_words:
         if self.service_score(w) > noise_threshold:
@@ -209,38 +209,21 @@ def think(self, max_inferences=20, min_energy=1.5, verbose=True):
                                     org_bc = c
                                     break
 
-                # Нужна хотя бы одна осмысленная связь
-                if not link_ab and not link_bc:
+                # ОБА звена должны иметь осмысленную связь
+                if not link_ab or not link_bc:
                     continue
 
-                # Определяем тип вывода и связующее слово
-                if link_ab and link_bc:
-                    # Оба звена есть — сильная цепочка
-                    # Паттерн 1: A это B + C обозначает B → A это C
-                    if link_ab == "это" and link_bc == "обозначает":
-                        link_out = "это"
-                    # Паттерн 2: A это B + B умеет/ест/живёт C → A умеет/ест/живёт C
-                    elif link_ab == "это" and link_bc in {"умеют", "имеет",
-                            "ест", "живёт", "кормит", "дышит", "делает", "даёт"}:
-                        link_out = link_bc
-                    # Паттерн обратный: C обозначает B + A это B → A это C
-                    elif link_bc == "это" and link_ab == "обозначает":
-                        link_out = "это"
-                    else:
-                        continue  # Непонятный паттерн — пропускаем
-                elif link_ab:
-                    # Только A↔B связаны через link
-                    if link_ab == "это":
-                        link_out = "это"
-                    else:
-                        continue
-                elif link_bc:
-                    # Только B↔C связаны через link
-                    if link_bc in {"обозначает", "умеют", "имеет",
-                                    "ест", "живёт", "кормит", "дышит"}:
-                        link_out = link_bc
-                    else:
-                        continue
+                # Определяем тип вывода
+                # Паттерн 1: A это B + C обозначает B → A это C
+                if link_ab == "это" and link_bc == "обозначает":
+                    link_out = "это"
+                # Паттерн 2: A это B + B умеет/ест/живёт C → A умеет/ест/живёт C
+                elif link_ab == "это" and link_bc in {"умеют", "имеет",
+                        "ест", "живёт", "кормит", "дышит", "делает", "даёт"}:
+                    link_out = link_bc
+                # Паттерн обратный: C обозначает B + A это B → A это C
+                elif link_bc == "это" and link_ab == "обозначает":
+                    link_out = "это"
                 else:
                     continue
 

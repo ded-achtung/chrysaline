@@ -96,8 +96,8 @@ class Generator:
         # Для каждого слова — visiting. Если два слова из вопроса
         # оба знают третье слово — это кандидат на ответ.
         # ══════════════════════════════════════════
+        visit_cache = {}
         if len(search_words) >= 2:
-            visit_cache = {}
             for sw in search_words:
                 info = visitor.visit(sw)
                 if info["found"]:
@@ -105,18 +105,22 @@ class Generator:
                 else:
                     visit_cache[sw] = set()
 
+            # Убираем search_words и их варианты регистра
+            sw_lower = {sw.lower() for sw in search_words}
+            def is_search_word(candidate):
+                return candidate.lower() in sw_lower
+
             # Пересечение: слова, которые знают ВСЕ search_words
             if all(visit_cache.get(sw) for sw in search_words):
                 sets = [visit_cache[sw] for sw in search_words]
                 intersection = sets[0]
                 for s in sets[1:]:
                     intersection = intersection & s
-                # Убираем сами search_words из пересечения
-                intersection -= set(search_words)
-                if intersection:
-                    # Ранжируем по энергии
+                # Убираем search_words (и их регистровые варианты)
+                clean_inter = {c for c in intersection if not is_search_word(c)}
+                if clean_inter:
                     ranked = []
-                    for candidate in intersection:
+                    for candidate in clean_inter:
                         cr = w._find_by_parts((candidate,))
                         energy = cr.energy if cr else 0
                         ranked.append((candidate, energy))
@@ -124,7 +128,7 @@ class Generator:
                     for candidate, _ in ranked:
                         result["answers"].append(candidate)
                     result["reasoning"].append(
-                        f"пересечение братьев: {sorted(intersection)[:8]}")
+                        f"пересечение братьев: {sorted(clean_inter)[:8]}")
 
             # Попарное пересечение (если полное не дало результата)
             if not result["answers"] and len(search_words) >= 2:
@@ -134,16 +138,18 @@ class Generator:
                         s1 = visit_cache.get(sw1, set())
                         s2 = visit_cache.get(sw2, set())
                         pair_inter = (s1 & s2) - set(search_words)
-                        if pair_inter:
-                            for candidate in pair_inter:
+                        pair_clean = {c for c in pair_inter if not is_search_word(c)}
+                        if pair_clean:
+                            for candidate in pair_clean:
                                 if candidate not in result["answers"]:
                                     result["answers"].append(candidate)
                             result["reasoning"].append(
-                                f"пересечение '{sw1}'∩'{sw2}': {sorted(pair_inter)[:6]}")
+                                f"пересечение '{sw1}'∩'{sw2}': {sorted(pair_clean)[:6]}")
 
         # ══════════════════════════════════════════
         # Стратегия 2: Поиск по слотам абстракций
-        # Старый метод — хорошо работает для "что ест кот"
+        # Хорошо работает для "что ест кот"
+        # Пробуем сначала с min_match=2, потом с 1
         # ══════════════════════════════════════════
         if not result["answers"]:
             min_match = min(2, len(search_words))
@@ -173,6 +179,32 @@ class Generator:
                 seen_patterns.add(key)
                 result["answers"].extend(clean)
                 result["reasoning"].append(f"{c.name} → {slot_name}={clean}")
+
+        # Стратегия 2б: слоты с min_match=1 (шире, но менее точно)
+        if not result["answers"] and len(search_words) >= 2:
+            candidates = []
+            for word in search_words:
+                for c in w.creatures.values():
+                    if not c.alive or not c.slot_options or c.valence == -1:
+                        continue
+                    fixed = [p for p in c.parts if not p.startswith("$")]
+                    if word not in fixed:
+                        continue
+                    for slot_name, options in c.slot_options.items():
+                        clean = sorted(o for o in options
+                                       if not o.startswith("$")
+                                       and o not in w.neg_markers)
+                        if clean:
+                            candidates.append((c, slot_name, clean, c.times_fed))
+            candidates.sort(key=lambda x: -x[3])
+            seen_patterns = set()
+            for c, slot_name, clean, _ in candidates:
+                key = (c.name, slot_name)
+                if key in seen_patterns:
+                    continue
+                seen_patterns.add(key)
+                result["answers"].extend(clean)
+                result["reasoning"].append(f"слоты(1): {c.name} → {slot_name}={clean}")
 
         # ══════════════════════════════════════════
         # Стратегия 3: Visiting по каждому слову → слоты из правил
