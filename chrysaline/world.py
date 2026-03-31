@@ -28,41 +28,37 @@ class World:
                 return self.creatures[cid]
         return None
 
-    def _confirmed_feed(self, creature, base_amount):
-        """Питание с проверкой на конкурентов.
+    def _find_competitor_energy(self, parts):
+        """Найти энергию сильнейшего конкурента для данных parts.
 
-        Два уровня проверки:
-        1. Через абстракции (если есть): точный конфликт через слоты
-        2. Прямое сравнение: организм с тем же скелетом и >=50% совпадения
+        Два уровня:
+        1. Через абстракции с 2+ слотами (точный конфликт)
+        2. Middle-match для complexity>=4 (та же середина, разные края)
 
-        Одиночные слова кормятся безусловно.
-        Категории (1-слотовые абстракции) — не конфликт.
+        Возвращает 0.0 если конкурентов нет.
         """
-        if creature.complexity < 2:
-            creature.feed(base_amount)
-            return base_amount
+        complexity = len(parts)
+        if complexity < 2:
+            return 0.0
 
-        best_competitor_energy = 0.0
+        best = 0.0
 
-        # Проверка 1: Через абстракции (для коротких организмов, >= 2 слота)
+        # Уровень 1: абстракции с 2+ слотами
         for abst in self.creatures.values():
             if not abst.alive or not abst.slot_options:
                 continue
-            if abst.complexity != creature.complexity:
+            if abst.complexity != complexity:
                 continue
-
             match = True
             slot_positions = {}
             for i in range(abst.complexity):
                 if abst.parts[i].startswith("$"):
-                    slot_positions[i] = (abst.parts[i], creature.parts[i])
-                elif abst.parts[i] != creature.parts[i]:
+                    slot_positions[i] = (abst.parts[i], parts[i])
+                elif abst.parts[i] != parts[i]:
                     match = False
                     break
-
             if not match or len(slot_positions) < 2:
                 continue
-
             for pos, (slot_name, our_value) in slot_positions.items():
                 if slot_name not in abst.slot_options:
                     continue
@@ -73,43 +69,46 @@ class World:
                 for other_val in clean:
                     if other_val == our_value:
                         continue
-                    comp_parts = list(creature.parts)
+                    comp_parts = list(parts)
                     comp_parts[pos] = other_val
                     competitor = self._find_by_parts(tuple(comp_parts))
-                    if competitor and competitor.alive:
-                        is_conflict = True
-                        for op, (osn, oval) in slot_positions.items():
-                            if op == pos:
-                                continue
-                            if creature.parts[op] != comp_parts[op]:
-                                is_conflict = False
-                                break
-                        if is_conflict and competitor.energy > best_competitor_energy:
-                            best_competitor_energy = competitor.energy
+                    if not competitor or not competitor.alive:
+                        continue
+                    is_conflict = True
+                    for op in slot_positions:
+                        if op == pos:
+                            continue
+                        if parts[op] != comp_parts[op]:
+                            is_conflict = False
+                            break
+                    if is_conflict and competitor.energy > best:
+                        best = competitor.energy
 
-        # Проверка 2: Прямое сравнение (для длинных организмов без абстракции)
-        # Конкурент: те же серединные части, разные крайние.
-        # "жи·пишется·с·буквой·и" vs "жы·пишется·с·буквой·ы":
-        #   середина "пишется·с·буквой" совпадает → конкурент.
-        if best_competitor_energy == 0 and creature.complexity >= 4:
+        # Уровень 2: прямое сравнение — все кроме одной позиции совпадают
+        if best == 0 and complexity >= 2:
             for c in self.creatures.values():
-                if not c.alive or c.id == creature.id:
+                if not c.alive or c.complexity != complexity:
                     continue
-                if c.complexity != creature.complexity:
+                if c.parts == tuple(parts):
                     continue
-                # Проверяем: серединные части (без первого и последнего) совпадают?
-                mid_same = all(creature.parts[i] == c.parts[i]
-                               for i in range(1, creature.complexity - 1))
-                edges_differ = (creature.parts[0] != c.parts[0] or
-                                creature.parts[-1] != c.parts[-1])
-                if mid_same and edges_differ:
-                    if c.energy > best_competitor_energy:
-                        best_competitor_energy = c.energy
+                diffs = sum(1 for i in range(complexity) if parts[i] != c.parts[i])
+                if diffs == 1 and c.energy > best:
+                    best = c.energy
 
-        if best_competitor_energy == 0:
+        return best
+
+    def _confirmed_feed(self, creature, base_amount):
+        """Питание с проверкой на конкурентов."""
+        if creature.complexity < 2:
             creature.feed(base_amount)
             return base_amount
-        elif creature.energy >= best_competitor_energy * 0.8:
+
+        comp_e = self._find_competitor_energy(creature.parts)
+
+        if comp_e == 0:
+            creature.feed(base_amount)
+            return base_amount
+        elif creature.energy >= comp_e * 0.8:
             weak = base_amount * 0.2
             creature.feed(weak)
             return weak
@@ -193,7 +192,13 @@ class World:
             return existing
         organism = Creature(parts, parent_ids)
         organism.generation = max(c.generation for c in creatures) + 1
-        organism.energy = sum(c.energy for c in creatures) * 0.2
+        base_energy = sum(c.energy for c in creatures) * 0.2
+        # Проверка при создании: если конкурент сильнее — родиться слабым
+        comp_e = self._find_competitor_energy(parts)
+        if comp_e > 0 and base_energy < comp_e:
+            organism.energy = 0.1  # слышал но не верю
+        else:
+            organism.energy = base_energy
         organism.valence = self._detect_valence(parts)
         self._register(organism)
         self.stats["merged"] += 1
