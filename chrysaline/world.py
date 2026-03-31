@@ -29,53 +29,96 @@ class World:
         return None
 
     def _confirmed_feed(self, creature, base_amount):
-        """Питание с проверкой: есть ли живой конкурент сильнее?
+        """Питание с проверкой через абстракции.
 
-        Три уровня:
-        - Подтверждается (нет конкурентов) → полное питание
-        - Нейтрально (конкуренты примерно равны) → слабое питание
-        - Противоречит (конкурент сильнее) → не кормится
+        Конфликт: если организм "A·это·X" и существует "A·это·Y" с
+        большей энергией — это конкурент (один субъект, разные категории).
+        НЕ конфликт: "A·это·X" и "B·это·X" — это коллеги, не конкуренты.
+
+        Проверка: ищем абстракции где creature подходит под скелет.
+        Если в слоте, куда попадает НЕпервая часть creature, есть
+        конкурент — проверяем, совпадают ли остальные (не-слотовые) части.
         """
         if creature.complexity < 2:
-            # Одиночные слова кормятся безусловно
             creature.feed(base_amount)
             return base_amount
 
-        # Ищем конкурента: другой организм с тем же скелетом
-        # но другим значением в одной позиции
         best_competitor_energy = 0.0
-        for c in self.creatures.values():
-            if not c.alive or c.id == creature.id:
+
+        for abst in self.creatures.values():
+            if not abst.alive or not abst.slot_options:
                 continue
-            if c.complexity != creature.complexity:
+            if abst.complexity != creature.complexity:
                 continue
-            # Считаем совпадающие и различающиеся позиции
-            same = 0
-            diff = 0
-            for i in range(creature.complexity):
-                if creature.parts[i] == c.parts[i]:
-                    same += 1
-                else:
-                    diff += 1
-            # Конкурент: большинство позиций совпадает, но есть отличия
-            # Для длинных (>=4): >= половина совпадает
-            # Для коротких (2-3): все кроме одной совпадают
-            min_same = creature.complexity - 1 if creature.complexity <= 3 else max(2, creature.complexity // 2)
-            if same >= min_same and diff >= 1:
-                if c.energy > best_competitor_energy:
-                    best_competitor_energy = c.energy
+
+            # creature подходит под скелет абстракции?
+            match = True
+            slot_positions = {}  # позиция → (slot_name, наше значение)
+            for i in range(abst.complexity):
+                if abst.parts[i].startswith("$"):
+                    slot_positions[i] = (abst.parts[i], creature.parts[i])
+                elif abst.parts[i] != creature.parts[i]:
+                    match = False
+                    break
+
+            if not match or not slot_positions:
+                continue
+
+            # Если только 1 слот — это категория, не конфликт.
+            # "кот·это·предмет" и "собака·это·предмет" — коллеги.
+            # Конфликт возможен только при >= 2 слотах:
+            # "кот·это·рыба" vs "кот·это·млекопитающее" (2 слота: $0 и $1)
+            if len(slot_positions) < 2:
+                continue
+
+            # Для каждого слота: ищем конкурента
+            for pos, (slot_name, our_value) in slot_positions.items():
+                if slot_name not in abst.slot_options:
+                    continue
+                clean = {o for o in abst.slot_options[slot_name]
+                         if not o.startswith("$")}
+                if our_value not in clean:
+                    continue
+
+                for other_val in clean:
+                    if other_val == our_value:
+                        continue
+                    # Собираем потенциального конкурента
+                    comp_parts = list(creature.parts)
+                    comp_parts[pos] = other_val
+                    competitor = self._find_by_parts(tuple(comp_parts))
+                    if not competitor or not competitor.alive:
+                        continue
+
+                    # Ключевое: конфликт только если совпадают ДРУГИЕ
+                    # слотовые позиции. "кот·это·рыба" vs "кот·это·млек"
+                    # — позиция 0 одинаковая (кот), позиция 2 разная.
+                    # "кот·это·предмет" vs "собака·это·предмет"
+                    # — позиция 0 разная, позиция 2 одинаковая → НЕ конфликт.
+                    #
+                    # Правило: конкуренты отличаются ТОЛЬКО в одном слоте,
+                    # а в остальных слотах (если есть) совпадают.
+                    is_conflict = True
+                    for other_pos, (other_sn, other_val_ours) in slot_positions.items():
+                        if other_pos == pos:
+                            continue  # Этот слот и так отличается
+                        # В другом слоте тоже отличается → НЕ конфликт
+                        # (это "коллеги", а не "конкуренты")
+                        if creature.parts[other_pos] != comp_parts[other_pos]:
+                            is_conflict = False
+                            break
+
+                    if is_conflict and competitor.energy > best_competitor_energy:
+                        best_competitor_energy = competitor.energy
 
         if best_competitor_energy == 0:
-            # Нет конкурентов → полное питание
             creature.feed(base_amount)
             return base_amount
         elif creature.energy >= best_competitor_energy * 0.8:
-            # Конкурент есть но мы примерно равны → слабое питание
             weak = base_amount * 0.2
             creature.feed(weak)
             return weak
         else:
-            # Конкурент сильнее → не кормить
             return 0.0
 
     def observe(self, word):

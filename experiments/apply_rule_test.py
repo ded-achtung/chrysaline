@@ -213,18 +213,7 @@ def apply_rule(self, task, verbose=True):
                 subject = w
                 break
         if subject:
-            res = gen.ask(f"какая часть речи {subject}?")
-            for a in res["answers"]:
-                if a.lower() in {"существительное", "глагол", "прилагательное",
-                                  "местоимение", "предлог"}:
-                    result["answer"] = a
-                    result["rule_used"] = "ask() → часть речи"
-                    result["reasoning"] = res["reasoning"][:3]
-                    result["confidence"] = 0.7
-                    if verbose:
-                        print(f"    ask() → {a}")
-                    return result
-            # ask() не нашёл чистый ответ — попробуем think-цепочку
+            # Сначала: visit-цепочка (точнее чем ask)
             info_subj = visitor.visit(subject)
             if info_subj["found"]:
                 for brother in info_subj["siblings"]:
@@ -244,6 +233,18 @@ def apply_rule(self, task, verbose=True):
                             if verbose:
                                 print(f"    Цепочка: {subject}→{brother}→{mapping[brother]}")
                             return result
+            # Fallback: ask()
+            res = gen.ask(f"какая часть речи {subject}?")
+            for a in res["answers"]:
+                if a.lower() in {"существительное", "глагол", "прилагательное",
+                                  "местоимение", "предлог"}:
+                    result["answer"] = a
+                    result["rule_used"] = "ask() → часть речи"
+                    result["reasoning"] = res["reasoning"][:3]
+                    result["confidence"] = 0.7
+                    if verbose:
+                        print(f"    ask() → {a}")
+                    return result
 
     # "большая буква" задача
     if "большая" in task_lower and "буква" in task_lower:
