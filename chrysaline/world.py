@@ -28,6 +28,56 @@ class World:
                 return self.creatures[cid]
         return None
 
+    def _confirmed_feed(self, creature, base_amount):
+        """Питание с проверкой: есть ли живой конкурент сильнее?
+
+        Три уровня:
+        - Подтверждается (нет конкурентов) → полное питание
+        - Нейтрально (конкуренты примерно равны) → слабое питание
+        - Противоречит (конкурент сильнее) → не кормится
+        """
+        if creature.complexity < 2:
+            # Одиночные слова кормятся безусловно
+            creature.feed(base_amount)
+            return base_amount
+
+        # Ищем конкурента: другой организм с тем же скелетом
+        # но другим значением в одной позиции
+        best_competitor_energy = 0.0
+        for c in self.creatures.values():
+            if not c.alive or c.id == creature.id:
+                continue
+            if c.complexity != creature.complexity:
+                continue
+            # Считаем совпадающие и различающиеся позиции
+            same = 0
+            diff = 0
+            for i in range(creature.complexity):
+                if creature.parts[i] == c.parts[i]:
+                    same += 1
+                else:
+                    diff += 1
+            # Конкурент: большинство позиций совпадает, но есть отличия
+            # Для длинных (>=4): >= половина совпадает
+            # Для коротких (2-3): все кроме одной совпадают
+            min_same = creature.complexity - 1 if creature.complexity <= 3 else max(2, creature.complexity // 2)
+            if same >= min_same and diff >= 1:
+                if c.energy > best_competitor_energy:
+                    best_competitor_energy = c.energy
+
+        if best_competitor_energy == 0:
+            # Нет конкурентов → полное питание
+            creature.feed(base_amount)
+            return base_amount
+        elif creature.energy >= best_competitor_energy * 0.8:
+            # Конкурент есть но мы примерно равны → слабое питание
+            weak = base_amount * 0.2
+            creature.feed(weak)
+            return weak
+        else:
+            # Конкурент сильнее → не кормить
+            return 0.0
+
     def observe(self, word):
         existing = self._find_by_parts((word,))
         if existing:
@@ -100,7 +150,7 @@ class World:
             parent_ids.append(c.id)
         existing = self._find_by_parts(tuple(parts))
         if existing:
-            existing.feed(0.3)
+            self._confirmed_feed(existing, 0.3)
             self.stats["fed"] += 1
             return existing
         organism = Creature(parts, parent_ids)
@@ -134,7 +184,7 @@ class World:
                 slot_count += 1
         existing = self._find_by_parts(tuple(abstract_parts))
         if existing:
-            existing.feed(0.4)
+            self._confirmed_feed(existing, 0.4)
             self.stats["fed"] += 1
             if hasattr(existing, 'slot_options'):
                 for slot, options in slot_options.items():
@@ -180,7 +230,7 @@ class World:
                             c.slot_options[slot_name].add(value)
                             absorbed_any = True
                 if absorbed_any:
-                    c.feed(0.3)
+                    self._confirmed_feed(c, 0.3)
                     self.stats["absorbed"] += 1
                     return True
         return False

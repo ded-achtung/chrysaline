@@ -34,6 +34,7 @@ EXPERIMENTS = {
     "think": ("experiments.think_test", "Метод think() — система делает выводы из знаний"),
     "feedback": ("experiments.feedback_test", "Обучение на опыте — learn_from_feedback()"),
     "apply": ("experiments.apply_rule_test", "apply_rule() — применение правил к задачам"),
+    "immunity": ("experiments.immunity_test", "Тест иммунитета — ложные факты не крепнут"),
 }
 
 
