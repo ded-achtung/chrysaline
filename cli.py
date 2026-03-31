@@ -36,6 +36,7 @@ EXPERIMENTS = {
     "apply": ("experiments.apply_rule_test", "apply_rule() — применение правил к задачам"),
     "immunity": ("experiments.immunity_test", "Тест иммунитета — ложные факты не крепнут"),
     "level7": ("experiments.level7_declensions", "Уровень 7: числа и склонения существительных"),
+    "living": ("experiments.living_test", "Живые существа — действуют по потребностям"),
 }
 
 

@@ -389,6 +389,157 @@ class World:
             del self.creatures[cid]
             self.stats["died"] += 1
 
+        # ══════════════════════════════════════════════════
+        # Живые существа действуют по потребностям.
+        # Максимум 3 за тик, только слова (complexity==1).
+        # ══════════════════════════════════════════════════
+        if self.tick_count % 5 != 0:
+            return  # Действуют только каждый 5-й тик (экономия)
+
+        from .visitor import Visitor
+        visitor = Visitor(self)
+
+        # Собираем кандидатов: слова с потребностями
+        candidates = []
+        for c in self.creatures.values():
+            if not c.alive or c.complexity != 1:
+                continue
+            word = c.parts[0]
+            if len(word) <= 1 or word.startswith("$"):
+                continue
+
+            # Определяем потребность
+            comp_e = self._find_competitor_energy((word,))
+            if comp_e > 0:
+                # Конфликтное — высший приоритет (3)
+                candidates.append((3, c, "conflict"))
+            elif 1.0 < c.energy < 5.0:
+                # Голодное — средний приоритет (2)
+                candidates.append((2, c, "hungry"))
+            elif c.energy >= 5.0:
+                # Сильное — низший приоритет (1)
+                candidates.append((1, c, "strong"))
+
+        if not candidates:
+            return
+
+        # Берём до 3 с наивысшим приоритетом
+        candidates.sort(key=lambda x: (-x[0], -x[1].energy))
+        active = candidates[:3]
+
+        link_words = {"это", "обозначает", "означает"}
+
+        for priority, creature, need in active:
+            word = creature.parts[0]
+            info = visitor.visit(word)
+            if not info["found"]:
+                continue
+
+            if need == "conflict":
+                # Ищет подтверждение среди братьев
+                siblings = info["siblings"]
+                confirmed = False
+                for brother in siblings:
+                    if len(brother) <= 1 or brother in link_words:
+                        continue
+                    br_cr = self._find_by_parts((brother,))
+                    if br_cr and br_cr.alive and br_cr.energy > 3.0:
+                        confirmed = True
+                        break
+                if confirmed:
+                    creature.feed(0.1)
+                    self.stats["fed"] += 1
+
+            elif need == "hungry":
+                # Ищет сильного брата для подкормки
+                siblings = info["siblings"]
+                fed_self = False
+                for brother in siblings:
+                    if len(brother) <= 1:
+                        continue
+                    br_cr = self._find_by_parts((brother,))
+                    if br_cr and br_cr.alive and br_cr.energy > creature.energy:
+                        creature.feed(0.03)
+                        self.stats["fed"] += 1
+                        fed_self = True
+                        break
+                # Также подкормить организмы-потомки (пары/тройки с этим словом)
+                if fed_self:
+                    for child_id in creature.children[:5]:
+                        if child_id in self.creatures:
+                            child = self.creatures[child_id]
+                            if child.alive and child.complexity >= 2:
+                                child.feed(0.04)
+                                self.stats["fed"] += 1
+
+            elif need == "strong":
+                # Думает: ищет транзитивную цепочку A→B→C
+                siblings = info["siblings"]
+                made_inference = False
+                for brother in siblings:
+                    if made_inference:
+                        break
+                    if len(brother) <= 1 or brother in link_words:
+                        continue
+                    if self.service_score(brother) > 0.4:
+                        continue
+                    info_b = visitor.visit(brother)
+                    if not info_b["found"]:
+                        continue
+                    for candidate in info_b["siblings"]:
+                        if made_inference:
+                            break
+                        if candidate == word or candidate == brother:
+                            continue
+                        if candidate in siblings:
+                            continue  # Уже знает
+                        if len(candidate) <= 1 or candidate in link_words:
+                            continue
+                        # Проверяем осмысленность: оба звена через link_word?
+                        link_ab = None
+                        link_bc = None
+                        for org in self.creatures.values():
+                            if not org.alive or org.complexity < 2:
+                                continue
+                            ps = set(org.parts)
+                            if word in ps and brother in ps:
+                                for p in org.parts:
+                                    if p in link_words:
+                                        link_ab = p
+                                        break
+                            if brother in ps and candidate in ps:
+                                for p in org.parts:
+                                    if p in link_words:
+                                        link_bc = p
+                                        break
+                        if not link_ab or not link_bc:
+                            continue
+                        links = {link_ab, link_bc}
+                        if not ("это" in links and "обозначает" in links):
+                            continue
+                        # Проверяем что не в одном слоте
+                        same_slot = False
+                        for org in self.creatures.values():
+                            if not org.alive or not org.slot_options:
+                                continue
+                            if brother not in org.parts:
+                                continue
+                            for sn, opts in org.slot_options.items():
+                                cl = {o for o in opts if not o.startswith("$")}
+                                if word in cl and candidate in cl:
+                                    same_slot = True
+                                    break
+                            if same_slot:
+                                break
+                        if same_slot:
+                            continue
+                        # Уже существует?
+                        if self._find_by_parts((word, "это", candidate)):
+                            continue
+                        # Создаём вывод
+                        self.feed_sentence([word, "это", candidate])
+                        made_inference = True
+
     def run(self, ticks):
         for _ in range(ticks):
             self.tick()
