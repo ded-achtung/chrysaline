@@ -33,6 +33,7 @@ EXPERIMENTS = {
     "level6": ("experiments.level6_textbook", "Уровень 6: настоящий учебник русского языка 1-2 класс"),
     "think": ("experiments.think_test", "Метод think() — система делает выводы из знаний"),
     "feedback": ("experiments.feedback_test", "Обучение на опыте — learn_from_feedback()"),
+    "apply": ("experiments.apply_rule_test", "apply_rule() — применение правил к задачам"),
 }
 
 
