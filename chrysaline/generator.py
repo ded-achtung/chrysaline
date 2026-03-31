@@ -10,12 +10,7 @@ class Generator:
         self.world = world
 
     def generate(self, creature, max_per_slot=None):
-        """Развернуть абстракцию в конкретные предложения.
-
-        Для каждого варианта в каждом слоте — одно предложение.
-        Если несколько слотов, берётся декартово произведение
-        (ограниченное max_per_slot вариантами на слот).
-        """
+        """Развернуть абстракцию в конкретные предложения."""
         if not creature.slot_options:
             return [" ".join(creature.parts)]
 
@@ -62,12 +57,18 @@ class Generator:
         return results
 
     def ask(self, question):
-        """Ответить на произвольный вопрос через visiting.
+        """Ответить на вопрос через visiting-цепочки.
 
-        Разбирает вопрос на слова, находит ключевые (не вопросительные),
-        ищет связи между ними, собирает ответ из слотов и родственников.
+        Порядок стратегий:
+        1. Пересечение братьев (быстро, точно)
+        2. Поиск по слотам абстракций (старый метод)
+        3. Транзитивные цепочки (как think())
+        4. Фильтрация шума через service_score
         """
         w = self.world
+        from .visitor import Visitor
+        visitor = Visitor(w)
+
         words = [wd.strip("?!., ").lower() for wd in question.split()]
         words = [wd for wd in words if wd]
 
@@ -88,90 +89,114 @@ class Generator:
 
         known_words = [wd for wd in content_words
                        if w._find_by_parts((wd,)) is not None]
-        unknown_words = [wd for wd in content_words if wd not in known_words]
-
         search_words = known_words if known_words else content_words
 
-        # Стратегия 1: абстракции где ключевые слова = фиксированные части
-        min_match = min(2, len(search_words))
-        candidates = []
-        for word in search_words:
-            for c in w.creatures.values():
-                if not c.alive or not c.slot_options or c.valence == -1:
-                    continue
-                fixed = [p for p in c.parts if not p.startswith("$")]
-                if word not in fixed:
-                    continue
-                match_count = sum(1 for cw in search_words if cw in fixed)
-                if match_count < min_match:
-                    continue
-                for slot_name, options in c.slot_options.items():
-                    clean = sorted(o for o in options
-                                   if not o.startswith("$") and o not in w.neg_markers)
-                    if clean:
-                        candidates.append((c, slot_name, clean, match_count))
-        candidates.sort(key=lambda x: (-x[3], -x[0].times_fed))
-        seen_patterns = set()
-        for c, slot_name, clean, _ in candidates:
-            key = (c.name, slot_name)
-            if key in seen_patterns:
-                continue
-            seen_patterns.add(key)
-            result["answers"].extend(clean)
-            result["reasoning"].append(f"{c.name} → {slot_name}={clean}")
+        # ══════════════════════════════════════════
+        # Стратегия 1: Пересечение братьев
+        # Для каждого слова — visiting. Если два слова из вопроса
+        # оба знают третье слово — это кандидат на ответ.
+        # ══════════════════════════════════════════
+        if len(search_words) >= 2:
+            visit_cache = {}
+            for sw in search_words:
+                info = visitor.visit(sw)
+                if info["found"]:
+                    visit_cache[sw] = info["siblings"]
+                else:
+                    visit_cache[sw] = set()
 
-        # Стратегия 2: visiting по каждому ключевому слову
-        if not result["answers"] and len(search_words) >= 2:
-            from .visitor import Visitor
-            visitor = Visitor(w)
-            primary = search_words[0]
-            info = visitor.visit(primary)
-            if info["found"]:
-                all_relatives = info["siblings"] | info.get("concrete_relatives", set())
-                for other in search_words[1:]:
-                    if other in all_relatives:
-                        result["reasoning"].append(
-                            f"'{primary}' visiting → знает '{other}'")
-                for rule in info.get("rules", []):
-                    opts = rule.get("options", set())
-                    clean = sorted(o for o in opts if not o.startswith("$"))
-                    if clean:
-                        relevant = False
-                        pattern_parts = rule["pattern"].split("·")
-                        for cw in search_words:
-                            if cw in pattern_parts:
-                                relevant = True
-                        if relevant:
-                            result["answers"].extend(clean)
+            # Пересечение: слова, которые знают ВСЕ search_words
+            if all(visit_cache.get(sw) for sw in search_words):
+                sets = [visit_cache[sw] for sw in search_words]
+                intersection = sets[0]
+                for s in sets[1:]:
+                    intersection = intersection & s
+                # Убираем сами search_words из пересечения
+                intersection -= set(search_words)
+                if intersection:
+                    # Ранжируем по энергии
+                    ranked = []
+                    for candidate in intersection:
+                        cr = w._find_by_parts((candidate,))
+                        energy = cr.energy if cr else 0
+                        ranked.append((candidate, energy))
+                    ranked.sort(key=lambda x: -x[1])
+                    for candidate, _ in ranked:
+                        result["answers"].append(candidate)
+                    result["reasoning"].append(
+                        f"пересечение братьев: {sorted(intersection)[:8]}")
+
+            # Попарное пересечение (если полное не дало результата)
+            if not result["answers"] and len(search_words) >= 2:
+                for i in range(len(search_words)):
+                    for j in range(i + 1, len(search_words)):
+                        sw1, sw2 = search_words[i], search_words[j]
+                        s1 = visit_cache.get(sw1, set())
+                        s2 = visit_cache.get(sw2, set())
+                        pair_inter = (s1 & s2) - set(search_words)
+                        if pair_inter:
+                            for candidate in pair_inter:
+                                if candidate not in result["answers"]:
+                                    result["answers"].append(candidate)
                             result["reasoning"].append(
-                                f"{rule['pattern']} → {clean}")
+                                f"пересечение '{sw1}'∩'{sw2}': {sorted(pair_inter)[:6]}")
 
-        # Стратегия 3: visiting по каждому слову -> собрать все слоты
+        # ══════════════════════════════════════════
+        # Стратегия 2: Поиск по слотам абстракций
+        # Старый метод — хорошо работает для "что ест кот"
+        # ══════════════════════════════════════════
         if not result["answers"]:
-            from .visitor import Visitor
-            visitor = Visitor(w)
+            min_match = min(2, len(search_words))
+            candidates = []
+            for word in search_words:
+                for c in w.creatures.values():
+                    if not c.alive or not c.slot_options or c.valence == -1:
+                        continue
+                    fixed = [p for p in c.parts if not p.startswith("$")]
+                    if word not in fixed:
+                        continue
+                    match_count = sum(1 for cw in search_words if cw in fixed)
+                    if match_count < min_match:
+                        continue
+                    for slot_name, options in c.slot_options.items():
+                        clean = sorted(o for o in options
+                                       if not o.startswith("$")
+                                       and o not in w.neg_markers)
+                        if clean:
+                            candidates.append((c, slot_name, clean, match_count))
+            candidates.sort(key=lambda x: (-x[3], -x[0].times_fed))
+            seen_patterns = set()
+            for c, slot_name, clean, _ in candidates:
+                key = (c.name, slot_name)
+                if key in seen_patterns:
+                    continue
+                seen_patterns.add(key)
+                result["answers"].extend(clean)
+                result["reasoning"].append(f"{c.name} → {slot_name}={clean}")
+
+        # ══════════════════════════════════════════
+        # Стратегия 3: Visiting по каждому слову → слоты из правил
+        # ══════════════════════════════════════════
+        if not result["answers"]:
             for word in search_words:
                 info = visitor.visit(word)
                 if not info["found"]:
                     continue
-                for slot_name, options in info.get("associated_slots", {}).items():
-                    clean = sorted(options)
-                    other_sw = [cw for cw in search_words if cw != word]
-                    for rule in info.get("rules", []):
-                        pattern_parts = rule["pattern"].split("·")
-                        if any(cw in pattern_parts for cw in other_sw):
-                            opts = rule.get("options", set())
-                            slot_clean = sorted(o for o in opts
-                                                if not o.startswith("$"))
-                            if slot_clean:
-                                result["answers"].extend(slot_clean)
-                                result["reasoning"].append(
-                                    f"'{word}' → {rule['pattern']} → {slot_clean}")
+                for rule in info.get("rules", []):
+                    pattern_parts = rule["pattern"].split("·")
+                    # Правило содержит другие search_words?
+                    if any(cw in pattern_parts for cw in search_words if cw != word):
+                        opts = rule.get("options", set())
+                        clean = sorted(o for o in opts if not o.startswith("$"))
+                        if clean:
+                            result["answers"].extend(clean)
+                            result["reasoning"].append(
+                                f"'{word}' → {rule['pattern']} → {clean}")
 
-        # Стратегия 4: "что делает X" / "что ест X"
+        # ══════════════════════════════════════════
+        # Стратегия 4: Организмы с парами слов
+        # ══════════════════════════════════════════
         if not result["answers"]:
-            from .visitor import Visitor
-            visitor = Visitor(w)
             for word in search_words:
                 info = visitor.visit(word)
                 if not info["found"]:
@@ -200,6 +225,58 @@ class Generator:
                                         result["reasoning"].append(
                                             f"{c.name} slot → {clean}")
 
+        # ══════════════════════════════════════════
+        # Стратегия 5: Транзитивные цепочки (как think())
+        # A→B→C: если search_word знает B, и B знает C,
+        # и C подходит по типу вопроса — добавить C
+        # ══════════════════════════════════════════
+        if not result["answers"]:
+            link_words = {"это", "обозначает", "означает", "называют"}
+            for word in search_words:
+                info = visitor.visit(word)
+                if not info["found"]:
+                    continue
+                for brother in info["siblings"]:
+                    if brother in set(search_words) | link_words:
+                        continue
+                    if len(brother) <= 1 or brother.startswith("$"):
+                        continue
+                    # Visiting по брату
+                    info_b = visitor.visit(brother)
+                    if not info_b["found"]:
+                        continue
+                    for candidate in info_b["siblings"]:
+                        if candidate == word or candidate == brother:
+                            continue
+                        if candidate in info["siblings"]:
+                            continue  # A уже знает C
+                        if candidate in link_words or len(candidate) <= 1:
+                            continue
+                        if candidate.startswith("$"):
+                            continue
+                        # Проверяем осмысленность: есть ли link_word в цепочке?
+                        has_link = False
+                        for c in w.creatures.values():
+                            if not c.alive or c.complexity < 2:
+                                continue
+                            parts = set(c.parts)
+                            if word in parts and brother in parts:
+                                if parts & link_words:
+                                    has_link = True
+                                    break
+                            if brother in parts and candidate in parts:
+                                if parts & link_words:
+                                    has_link = True
+                                    break
+                        if has_link:
+                            if candidate not in result["answers"]:
+                                result["answers"].append(candidate)
+                                result["reasoning"].append(
+                                    f"цепочка: {word}→{brother}→{candidate}")
+
+        # ══════════════════════════════════════════
+        # Дедупликация
+        # ══════════════════════════════════════════
         seen = set()
         unique = []
         for a in result["answers"]:
@@ -208,10 +285,17 @@ class Generator:
                 unique.append(a)
         result["answers"] = unique
 
-        # Subtract negative evidence: collect neg_siblings for each answer
+        # ══════════════════════════════════════════
+        # Фильтрация шума через service_score
+        # ══════════════════════════════════════════
+        if len(result["answers"]) > 3:
+            filtered = [a for a in result["answers"]
+                        if w.service_score(a) < 0.4]
+            if filtered:
+                result["answers"] = filtered
+
+        # Негативная фильтрация
         if result["answers"] and w.neg_markers:
-            from .visitor import Visitor
-            visitor = Visitor(w)
             neg_evidence = set()
             for word in search_words:
                 info = visitor.visit(word)
@@ -224,13 +308,11 @@ class Generator:
                     result["reasoning"].append(
                         f"neg-фильтр убрал: {sorted(neg_evidence & seen)}")
 
-        # ══════════════════════════════════════════════════
-        # НОВОЕ: Обучение на собственном опыте
-        # Результат ask() возвращается в экосистему
-        # ══════════════════════════════════════════════════
+        # ══════════════════════════════════════════
+        # Обучение на собственном опыте
+        # ══════════════════════════════════════════
         if result["answers"]:
-            for answer in result["answers"][:3]:  # максимум 3 ответа
-                # Формируем предложение из ключевых слов + ответ
+            for answer in result["answers"][:3]:
                 experience = content_words + [answer]
                 if len(experience) >= 2:
                     self.world.feed_sentence(experience)
