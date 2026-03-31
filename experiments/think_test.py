@@ -101,16 +101,19 @@ def think(self, max_inferences=20, min_energy=1.5, verbose=True):
         print(f"    think(): {len(strong_words)} сильных слов")
 
     # Служебные слова — автоматически через service_score
-    service_threshold = 0.3
+    # Порог для A/C (субъект/объект вывода) — мягче
+    noise_threshold = 0.3
+    # Порог для B (связующее звено) — строже, отсекает "и","одно","слово"
+    bridge_threshold = 0.42
     noise = set()
     for w in strong_words:
-        if self.service_score(w) > service_threshold:
+        if self.service_score(w) > noise_threshold:
             noise.add(w)
-    # Всегда исключаем символы
+    # Всегда исключаем символы и однобуквенные
     noise.update({".", " ", ",", "!", "?"})
 
     if verbose and noise:
-        print(f"    шумные (service>{service_threshold}): {sorted(noise)[:10]}")
+        print(f"    шумные (service>{noise_threshold}): {sorted(noise)[:10]}")
 
     # Собираем уже известные пары
     existing_pairs = set()
@@ -128,6 +131,9 @@ def think(self, max_inferences=20, min_energy=1.5, verbose=True):
             break
         if word_a in noise:
             continue
+        # A должен быть содержательным: длиннее 2 символов, не служебный
+        if len(word_a) <= 2 or self.service_score(word_a) > bridge_threshold:
+            continue
 
         info_a = visitor.visit(word_a)
         if not info_a["found"]:
@@ -142,8 +148,8 @@ def think(self, max_inferences=20, min_energy=1.5, verbose=True):
                 continue
             if len(word_b) <= 1 or word_b.startswith("$"):
                 continue
-            # B должен быть содержательным
-            if self.service_score(word_b) > service_threshold:
+            # B (связующее звено) должен быть содержательным — строгий порог
+            if self.service_score(word_b) > bridge_threshold:
                 continue
 
             info_b = visitor.visit(word_b)
@@ -161,7 +167,7 @@ def think(self, max_inferences=20, min_energy=1.5, verbose=True):
                 if word_c.startswith("$"):
                     continue
                 # C должен быть содержательным
-                if self.service_score(word_c) > service_threshold:
+                if self.service_score(word_c) > noise_threshold:
                     continue
 
                 # A уже знает C?
