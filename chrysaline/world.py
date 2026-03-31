@@ -463,14 +463,20 @@ class World:
                         self.stats["fed"] += 1
                         fed_self = True
                         break
-                # Также подкормить организмы-потомки (пары/тройки с этим словом)
+                # Подкормить потомков — но только тех у кого НЕТ сильного конкурента
                 if fed_self:
                     for child_id in creature.children[:5]:
-                        if child_id in self.creatures:
-                            child = self.creatures[child_id]
-                            if child.alive and child.complexity >= 2:
-                                child.feed(0.04)
-                                self.stats["fed"] += 1
+                        if child_id not in self.creatures:
+                            continue
+                        child = self.creatures[child_id]
+                        if not child.alive or child.complexity < 2:
+                            continue
+                        # Не спасать конфликтных — они слабые по причине
+                        child_comp = self._find_competitor_energy(child.parts)
+                        if child_comp > 0 and child.energy < child_comp * 0.5:
+                            continue  # Конкурент сильнее — не подкармливать
+                        child.feed(0.04)
+                        self.stats["fed"] += 1
 
             elif need == "strong":
                 # Думает: ищет транзитивную цепочку A→B→C
