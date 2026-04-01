@@ -291,6 +291,11 @@ class World:
                 for slot_name, value in new_values.items():
                     if value.startswith("$"):
                         continue
+                    # Фильтр: проверяем что новое значение не конфликтует
+                    # с существующими через конкурентов
+                    value_cr = self._find_by_parts((value,))
+                    if value_cr and value_cr.energy < 0.5:
+                        continue  # Слишком слабое — не поглощать
                     if slot_name in c.slot_options:
                         if value not in c.slot_options[slot_name]:
                             c.slot_options[slot_name].add(value)
@@ -487,6 +492,22 @@ class World:
             c.tick()
             if not c.alive:
                 dead.append(cid)
+        # Чистим мёртвых из слотов абстракций (каждые 20 тиков)
+        if dead and self.tick_count % 20 == 0:
+            dead_words = set()
+            for cid in dead:
+                c = self.creatures[cid]
+                if c.complexity == 1:
+                    dead_words.add(c.parts[0])
+            if dead_words:
+                for c in self.creatures.values():
+                    if not c.alive or not c.slot_options:
+                        continue
+                    for sn, opts in c.slot_options.items():
+                        to_remove = opts & dead_words
+                        if to_remove:
+                            opts -= to_remove
+
         for cid in dead:
             c = self.creatures[cid]
             if c.parts in self.by_parts:

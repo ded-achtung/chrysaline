@@ -30,18 +30,17 @@ class Visitor:
 
         neg_markers = w.neg_markers
 
-        # ШАГ 1: Найти ВСЕ организмы где это слово — ЧАСТЬ
+        # ШАГ 1: Найти ВСЕ организмы где это слово — ЧАСТЬ (через индекс)
         my_organisms = []
-        for c in w.creatures.values():
-            if not c.alive or c.complexity < 2:
+        for c in w._find_orgs_with_word(word):
+            if c.complexity < 2:
                 continue
-            if word in c.parts:
-                my_organisms.append(c)
-                result["contexts"].append(c.name)
-                target = result["neg_siblings"] if c.valence == -1 else result["siblings"]
-                for part in c.parts:
-                    if part != word and not part.startswith("$") and part not in neg_markers:
-                        target.add(part)
+            my_organisms.append(c)
+            result["contexts"].append(c.name)
+            target = result["neg_siblings"] if c.valence == -1 else result["siblings"]
+            for part in c.parts:
+                if part != word and not part.startswith("$") and part not in neg_markers:
+                    target.add(part)
 
         # ШАГ 2: Пойти к детям моих организмов
         for organism in my_organisms:
@@ -68,10 +67,14 @@ class Visitor:
                             "fed": c.times_fed,
                         })
 
-        # ШАГ 4: Я в СЛОТЕ какой-то абстракции? (я заменяемый)
+        # ШАГ 4: Я в СЛОТЕ какой-то абстракции? (через by_word индекс)
+        # Слово может быть в slot_options но НЕ в parts — ищем через абстракции
+        # содержащие другие слова из моих организмов
+        checked_abstractions = set()
         for c in w.creatures.values():
-            if not c.alive or not c.slot_options:
+            if not c.alive or not c.slot_options or c.id in checked_abstractions:
                 continue
+            checked_abstractions.add(c.id)
             for slot_name, options in c.slot_options.items():
                 clean = {o for o in options if not o.startswith("$")}
                 if word in clean:
@@ -85,21 +88,21 @@ class Visitor:
                         "fed": c.times_fed,
                     })
 
-        # ШАГ 5: Глубже — пойти к братьям и посмотреть ИХ организмы
+        # ШАГ 5: Глубже — пойти к братьям (через by_word, max 10 братьев)
         if max_depth > 1:
-            for sibling in list(result["siblings"]):
-                for c in w.creatures.values():
-                    if not c.alive or c.complexity < 2:
+            siblings_to_visit = list(result["siblings"])[:10]
+            for sibling in siblings_to_visit:
+                for c in w._find_orgs_with_word(sibling):
+                    if c.complexity < 2:
                         continue
-                    if sibling in c.parts:
-                        for part in c.parts:
-                            if part != sibling and part != word and not part.startswith("$"):
-                                result["concrete_relatives"].add(part)
-                        if c.slot_options:
-                            for slot_name, options in c.slot_options.items():
-                                clean = {o for o in options if not o.startswith("$")}
-                                if clean and slot_name not in result["associated_slots"]:
-                                    result["associated_slots"][slot_name] = clean
+                    for part in c.parts:
+                        if part != sibling and part != word and not part.startswith("$"):
+                            result["concrete_relatives"].add(part)
+                    if c.slot_options:
+                        for slot_name, options in c.slot_options.items():
+                            clean = {o for o in options if not o.startswith("$")}
+                            if clean and slot_name not in result["associated_slots"]:
+                                result["associated_slots"][slot_name] = clean
 
         result["rules"].sort(key=lambda r: -r["fed"])
         return result
