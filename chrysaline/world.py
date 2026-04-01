@@ -10,6 +10,7 @@ class World:
             "fed": 0, "absorbed": 0, "split": 0,
         }
         self.by_parts = {}
+        self.by_word = {}  # word → set of creature ids (индекс слово→организмы)
         self.events = []
         self.max_creatures = 2000
         self.neg_markers = set()
@@ -19,6 +20,22 @@ class World:
         self.creatures[creature.id] = creature
         self.by_parts[creature.parts] = creature.id
         self.stats["born"] += 1
+        # Обновляем индекс by_word
+        for part in creature.parts:
+            if not part.startswith("$"):
+                if part not in self.by_word:
+                    self.by_word[part] = set()
+                self.by_word[part].add(creature.id)
+
+    def _find_orgs_with_word(self, word):
+        """Быстрый поиск: все живые организмы содержащие слово. O(1) lookup."""
+        if word not in self.by_word:
+            return []
+        result = []
+        for cid in self.by_word[word]:
+            if cid in self.creatures and self.creatures[cid].alive:
+                result.append(self.creatures[cid])
+        return result
 
     def _find_by_parts(self, parts):
         key = tuple(parts)
@@ -84,16 +101,22 @@ class World:
                     if is_conflict and competitor.energy > best:
                         best = competitor.energy
 
-        # Уровень 2: прямое сравнение — все кроме одной позиции совпадают
+        # Уровень 2: прямое сравнение через by_word индекс
         if best == 0 and complexity >= 2:
-            for c in self.creatures.values():
-                if not c.alive or c.complexity != complexity:
+            # Ищем организмы содержащие хотя бы одно слово из parts
+            checked = set()
+            for part in parts:
+                if part.startswith("$"):
                     continue
-                if c.parts == tuple(parts):
-                    continue
-                diffs = sum(1 for i in range(complexity) if parts[i] != c.parts[i])
-                if diffs == 1 and c.energy > best:
-                    best = c.energy
+                for c in self._find_orgs_with_word(part):
+                    if c.id in checked or c.complexity != complexity:
+                        continue
+                    checked.add(c.id)
+                    if c.parts == tuple(parts):
+                        continue
+                    diffs = sum(1 for i in range(complexity) if parts[i] != c.parts[i])
+                    if diffs == 1 and c.energy > best:
+                        best = c.energy
 
         return best
 
@@ -362,7 +385,7 @@ class World:
         # Максимум 2 вывода за предложение.
         # Пропускаем если мир слишком большой (производительность).
         # ══════════════════════════════════════════════════
-        if len(words) >= 2 and len(self.creatures) < 800:
+        if len(words) >= 2 and len(self.creatures) < 400:
             link_words_set = {"это", "обозначает", "означает"}
             inferences_made = 0
             for word_a in words:
@@ -399,15 +422,16 @@ class World:
                             continue
                         # Проверяем: оба звена через link_word?
                         lab, lbc = None, None
-                        for org in self.creatures.values():
-                            if not org.alive or org.complexity < 2:
+                        # Используем индекс by_word вместо полного перебора
+                        for org in self._find_orgs_with_word(word_b):
+                            if org.complexity < 2:
                                 continue
                             ps = set(org.parts)
-                            if word_a in ps and word_b in ps:
+                            if word_a in ps and not lab:
                                 for p in org.parts:
                                     if p in link_words_set:
                                         lab = p; break
-                            if word_b in ps and word_c in ps:
+                            if word_c in ps and not lbc:
                                 for p in org.parts:
                                     if p in link_words_set:
                                         lbc = p; break
@@ -418,10 +442,8 @@ class World:
                             continue
                         # Не в одном слоте (коллеги)?
                         same_slot = False
-                        for org in self.creatures.values():
-                            if not org.alive or not org.slot_options:
-                                continue
-                            if word_b not in org.parts:
+                        for org in self._find_orgs_with_word(word_b):
+                            if not org.slot_options:
                                 continue
                             for sn, opts in org.slot_options.items():
                                 cl = {o for o in opts if not o.startswith("$")}
@@ -469,6 +491,10 @@ class World:
             c = self.creatures[cid]
             if c.parts in self.by_parts:
                 del self.by_parts[c.parts]
+            # Чистим индекс by_word
+            for part in c.parts:
+                if part in self.by_word:
+                    self.by_word[part].discard(cid)
             del self.creatures[cid]
             self.stats["died"] += 1
 
@@ -562,14 +588,12 @@ class World:
                     continue
                 # Проверяем: C→D через link_word?
                 has_link = False
-                for org in self.creatures.values():
-                    if not org.alive or org.complexity < 2:
+                for org in self._find_orgs_with_word(word_c):
+                    if org.complexity < 2:
                         continue
-                    ps = set(org.parts)
-                    if word_c in ps and word_d in ps:
-                        if ps & link_words:
-                            has_link = True
-                            break
+                    if word_d in set(org.parts) and set(org.parts) & link_words:
+                        has_link = True
+                        break
                 if not has_link:
                     continue
                 # Не слишком длинная цепочка? (max 5 звеньев)
@@ -716,10 +740,27 @@ class World:
                                         [first_word, "и", lower, "это", "одно", "слово"])
                                 bridged.add(lower)
 
-                # Подаём предложения
+                # Подаём предложения: оригинал + чанки для длинных
                 for sent in sentences:
-                    self.feed_sentence(sent)
+                    # Убираем точку для обработки
+                    words_only = [w for w in sent if w != "."]
+                    if len(words_only) <= 6:
+                        # Короткое — подаём как есть
+                        self.feed_sentence(sent)
+                    else:
+                        # Длинное — разбиваем на перекрывающиеся чанки по 4-5 слов
+                        # + полное предложение (для полного контекста)
+                        self.feed_sentence(sent)
+                        for i in range(0, len(words_only) - 2, 3):
+                            chunk = words_only[i:i + 5]
+                            if len(chunk) >= 2:
+                                self.feed_sentence(chunk)
                     self.run(1)
+                    # Нормализованная версия (lowercase без точки)
+                    normalized = [w.lower() for w in sent if w != "."]
+                    if normalized and normalized != [w for w in sent if w != "."]:
+                        self.feed_sentence(normalized)
+                        self.run(1)
             else:
                 self.feed_sentence(raw_tokens)
                 self.run(1)
