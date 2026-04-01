@@ -38,6 +38,7 @@ EXPERIMENTS = {
     "level7": ("experiments.level7_declensions", "Уровень 7: числа и склонения существительных"),
     "living": ("experiments.living_test", "Живые существа — действуют по потребностям"),
     "wave": ("experiments.wave_vs_feeding", "Волна активации vs кормление — сравнение"),
+    "10min": ("experiments.ten_minutes", "10 минут жизни — система думает или стоит?"),
 }
 
 
