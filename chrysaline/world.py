@@ -433,7 +433,9 @@ class World:
                         # Уже существует?
                         if self._find_by_parts((word_a, "это", word_c)):
                             continue
+                        # Создаём вывод + цепочку-путь
                         self.feed_sentence([word_a, "это", word_c])
+                        self.feed_sentence([word_a, "через", word_b, "значит", word_c])
                         inferences_made += 1
 
         # Валентность: применяем только если учитель уже дал neg_markers
@@ -470,161 +472,142 @@ class World:
             self.stats["died"] += 1
 
         # ══════════════════════════════════════════════════
-        # Живые существа действуют по потребностям.
-        # Максимум 3 за тик, только слова (complexity==1).
+        # Мышление над цепочками.
+        # Цепочки = организмы с "через" и "значит".
+        # Действия: продлить, соединить, проверить.
         # ══════════════════════════════════════════════════
         if self.tick_count % 5 != 0:
-            return  # Действуют только каждый 5-й тик (экономия)
+            return
 
         from .visitor import Visitor
         visitor = Visitor(self)
+        link_words = {"это", "обозначает", "означает"}
 
-        # Собираем кандидатов: слова с потребностями
-        candidates = []
+        # Собираем ВСЕ живые цепочки (содержат "через" и "значит")
+        chains = []
+        for c in self.creatures.values():
+            if not c.alive or c.complexity < 5:
+                continue
+            if "через" in c.parts and "значит" in c.parts:
+                chains.append(c)
+
+        # Также: голодные слова подкармливаются
         for c in self.creatures.values():
             if not c.alive or c.complexity != 1:
                 continue
-            word = c.parts[0]
-            if len(word) <= 1 or word.startswith("$"):
-                continue
-
-            # Определяем потребность
-            comp_e = self._find_competitor_energy((word,))
-            if comp_e > 0:
-                # Конфликтное — высший приоритет (3)
-                candidates.append((3, c, "conflict"))
-            elif 1.0 < c.energy < 5.0:
-                # Голодное — средний приоритет (2)
-                candidates.append((2, c, "hungry"))
-            elif c.energy >= 5.0:
-                # Сильное — низший приоритет (1)
-                candidates.append((1, c, "strong"))
-
-        if not candidates:
-            return
-
-        # Берём до 3 с наивысшим приоритетом
-        candidates.sort(key=lambda x: (-x[0], -x[1].energy))
-        active = candidates[:3]
-
-        link_words = {"это", "обозначает", "означает"}
-
-        for priority, creature, need in active:
-            word = creature.parts[0]
-            info = visitor.visit(word)
-            if not info["found"]:
-                continue
-
-            if need == "conflict":
-                # Ищет подтверждение среди братьев
-                siblings = info["siblings"]
-                confirmed = False
-                for brother in siblings:
-                    if len(brother) <= 1 or brother in link_words:
-                        continue
-                    br_cr = self._find_by_parts((brother,))
-                    if br_cr and br_cr.alive and br_cr.energy > 3.0:
-                        confirmed = True
-                        break
-                if confirmed:
-                    creature.feed(0.1)
-                    self.stats["fed"] += 1
-
-            elif need == "hungry":
-                # Ищет сильного брата для подкормки
-                siblings = info["siblings"]
-                fed_self = False
-                for brother in siblings:
+            if 1.0 < c.energy < 5.0 and len(c.parts[0]) > 1:
+                info = visitor.visit(c.parts[0])
+                if not info["found"]:
+                    continue
+                for brother in info["siblings"]:
                     if len(brother) <= 1:
                         continue
                     br_cr = self._find_by_parts((brother,))
-                    if br_cr and br_cr.alive and br_cr.energy > creature.energy:
-                        creature.feed(0.03)
+                    if br_cr and br_cr.alive and br_cr.energy > c.energy:
+                        c.feed(0.03)
                         self.stats["fed"] += 1
-                        fed_self = True
+                        # Потомков тоже
+                        for child_id in c.children[:5]:
+                            if child_id in self.creatures:
+                                child = self.creatures[child_id]
+                                if child.alive and child.complexity >= 2:
+                                    comp = self._find_competitor_energy(child.parts)
+                                    if not (comp > 0 and child.energy < comp * 0.5):
+                                        child.feed(0.04)
+                                        self.stats["fed"] += 1
                         break
-                # Подкормить потомков — но только тех у кого НЕТ сильного конкурента
-                if fed_self:
-                    for child_id in creature.children[:5]:
-                        if child_id not in self.creatures:
-                            continue
-                        child = self.creatures[child_id]
-                        if not child.alive or child.complexity < 2:
-                            continue
-                        # Не спасать конфликтных — они слабые по причине
-                        child_comp = self._find_competitor_energy(child.parts)
-                        if child_comp > 0 and child.energy < child_comp * 0.5:
-                            continue  # Конкурент сильнее — не подкармливать
-                        child.feed(0.04)
-                        self.stats["fed"] += 1
 
-            elif need == "strong":
-                # Думает: ищет транзитивную цепочку A→B→C
-                siblings = info["siblings"]
-                made_inference = False
-                for brother in siblings:
-                    if made_inference:
-                        break
-                    if len(brother) <= 1 or brother in link_words:
+        if not chains:
+            return
+
+        # Для КАЖДОЙ цепочки — одно действие
+        for chain in chains:
+            # Разбираем: A через B значит C
+            parts = chain.parts
+            try:
+                idx_через = parts.index("через")
+                idx_значит = parts.index("значит")
+            except ValueError:
+                continue
+
+            word_a = parts[0] if idx_через > 0 else None
+            word_b = parts[idx_через + 1] if idx_через + 1 < idx_значит else None
+            word_c = parts[idx_значит + 1] if idx_значит + 1 < len(parts) else None
+
+            if not word_a or not word_b or not word_c:
+                continue
+
+            # Действие 1: ПРОВЕРИТЬ — оба звена живы и сильны?
+            cr_a = self._find_by_parts((word_a,))
+            cr_b = self._find_by_parts((word_b,))
+            cr_c = self._find_by_parts((word_c,))
+            if cr_a and cr_b and cr_c and all(c.alive for c in [cr_a, cr_b, cr_c]):
+                # Все звенья живы — подкормить цепочку
+                chain.feed(0.05)
+                self.stats["fed"] += 1
+            else:
+                continue  # Звено мертво — цепочка не подтверждается
+
+            # Действие 2: ПРОДЛИТЬ — visiting по C, ищем D
+            info_c = visitor.visit(word_c)
+            if not info_c["found"]:
+                continue
+            for word_d in info_c["siblings"]:
+                if word_d in {word_a, word_b, word_c}:
+                    continue
+                if word_d in link_words or len(word_d) <= 1:
+                    continue
+                if self.service_score(word_d) > 0.4:
+                    continue
+                # Проверяем: C→D через link_word?
+                has_link = False
+                for org in self.creatures.values():
+                    if not org.alive or org.complexity < 2:
                         continue
-                    if self.service_score(brother) > 0.4:
-                        continue
-                    info_b = visitor.visit(brother)
-                    if not info_b["found"]:
-                        continue
-                    for candidate in info_b["siblings"]:
-                        if made_inference:
+                    ps = set(org.parts)
+                    if word_c in ps and word_d in ps:
+                        if ps & link_words:
+                            has_link = True
                             break
-                        if candidate == word or candidate == brother:
-                            continue
-                        if candidate in siblings:
-                            continue  # Уже знает
-                        if len(candidate) <= 1 or candidate in link_words:
-                            continue
-                        # Проверяем осмысленность: оба звена через link_word?
-                        link_ab = None
-                        link_bc = None
-                        for org in self.creatures.values():
-                            if not org.alive or org.complexity < 2:
-                                continue
-                            ps = set(org.parts)
-                            if word in ps and brother in ps:
-                                for p in org.parts:
-                                    if p in link_words:
-                                        link_ab = p
-                                        break
-                            if brother in ps and candidate in ps:
-                                for p in org.parts:
-                                    if p in link_words:
-                                        link_bc = p
-                                        break
-                        if not link_ab or not link_bc:
-                            continue
-                        links = {link_ab, link_bc}
-                        if not ("это" in links and "обозначает" in links):
-                            continue
-                        # Проверяем что не в одном слоте
-                        same_slot = False
-                        for org in self.creatures.values():
-                            if not org.alive or not org.slot_options:
-                                continue
-                            if brother not in org.parts:
-                                continue
-                            for sn, opts in org.slot_options.items():
-                                cl = {o for o in opts if not o.startswith("$")}
-                                if word in cl and candidate in cl:
-                                    same_slot = True
-                                    break
-                            if same_slot:
-                                break
-                        if same_slot:
-                            continue
-                        # Уже существует?
-                        if self._find_by_parts((word, "это", candidate)):
-                            continue
-                        # Создаём вывод
-                        self.feed_sentence([word, "это", candidate])
-                        made_inference = True
+                if not has_link:
+                    continue
+                # Не слишком длинная цепочка? (max 5 звеньев)
+                if chain.complexity >= 7:
+                    continue
+                # A уже знает D?
+                info_a = visitor.visit(word_a)
+                if info_a["found"] and word_d in info_a["siblings"]:
+                    continue
+                # Уже существует вывод?
+                if self._find_by_parts((word_a, "это", word_d)):
+                    continue
+                # Создаём новый вывод + удлинённую цепочку
+                self.feed_sentence([word_a, "это", word_d])
+                self.stats["born"] += 0  # feed_sentence уже считает
+                break  # Одно продление за цепочку
+
+            # Действие 3: СОЕДИНИТЬ — найти другую цепочку с общим звеном
+            for other in chains:
+                if other.id == chain.id:
+                    continue
+                if not other.alive:
+                    continue
+                try:
+                    oi_через = other.parts.index("через")
+                    oi_значит = other.parts.index("значит")
+                except ValueError:
+                    continue
+                other_a = other.parts[0] if oi_через > 0 else None
+                other_c = other.parts[oi_значит + 1] if oi_значит + 1 < len(other.parts) else None
+                if not other_a or not other_c:
+                    continue
+                # Общее начало? A = other_A → кросс-доменная связь
+                if word_a == other_a and word_c != other_c:
+                    # кот → существительное И кот → млекопитающее
+                    # Подкормить обе цепочки
+                    chain.feed(0.03)
+                    other.feed(0.03)
+                    self.stats["fed"] += 2
 
     def run(self, ticks):
         for _ in range(ticks):
